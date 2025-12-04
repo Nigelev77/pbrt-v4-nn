@@ -10,3 +10,9 @@ src/build
 
 CMakePresets.json
 .vscode/*
+
+src/ext/instant-ngp/data/*
+src/ext/instant-ngp/docs/*
+
+
+scenes/*
