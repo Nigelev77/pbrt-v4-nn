@@ -833,6 +833,10 @@ __global__ void generate_training_samples_nerf(
 
 	uint32_t ray_idx = atomicAdd(ray_counter, 1);
 
+	if (ray_idx >= n_rays) {
+		return;
+	}
+
 	ray_indices_out[ray_idx] = i;
 	rays_out_unnormalized[ray_idx] = ray_unnormalized;
 	numsteps_out[ray_idx * 2 + 0] = numsteps;
@@ -1058,8 +1062,7 @@ __global__ void compute_loss_kernel_train_nerf(
 		const vec2 pos = clamp(uv * vec2(error_map_res) - 0.5f, 0.0f, vec2(error_map_res) - (1.0f + 1e-4f));
 		const ivec2 pos_int = pos;
 		const vec2 weight = pos - vec2(pos_int);
-
-		ivec2 idx = clamp(pos_int, 0, resolution - 2);
+		ivec2 idx = clamp(pos_int, 0, error_map_res - 2);
 
 		auto deposit_val = [&](int x, int y, float val) {
 			atomicAdd(&error_map[img * product(error_map_res) + y * error_map_res.x + x], val);
@@ -2685,6 +2688,7 @@ void Testbed::NerfCounters::prepare_for_training_steps(cudaStream_t stream) {
 	numsteps_counter.enlarge(1);
 	numsteps_counter_compacted.enlarge(1);
 	loss.enlarge(rays_per_batch);
+	// printf("Prepare: numsteps_counter=%p size=%zu\n", numsteps_counter.data(), numsteps_counter.size());
 	CUDA_CHECK_THROW(cudaMemsetAsync(numsteps_counter.data(), 0, sizeof(uint32_t), stream)); // clear the counter in the first slot
 	CUDA_CHECK_THROW(cudaMemsetAsync(numsteps_counter_compacted.data(), 0, sizeof(uint32_t), stream)); // clear the counter in the first slot
 	CUDA_CHECK_THROW(cudaMemsetAsync(loss.data(), 0, sizeof(float) * rays_per_batch, stream));
@@ -2806,7 +2810,8 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 	m_nerf.training.n_steps_since_error_map_update += 1;
 	// This is low-overhead enough to warrant always being on.
 	// It makes for useful visualizations of the training error.
-	bool accumulate_error = true;
+	// bool accumulate_error = true;
+	bool accumulate_error = false;
 	if (accumulate_error && m_nerf.training.n_steps_since_error_map_update >= m_nerf.training.n_steps_between_error_map_updates) {
 		m_nerf.training.error_map.cdf_resolution = m_nerf.training.error_map.resolution;
 		m_nerf.training.error_map.cdf_x_cond_y.resize(product(m_nerf.training.error_map.cdf_resolution) * m_nerf.training.dataset.n_images);
@@ -3104,11 +3109,13 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 	bool include_sharpness_in_error = m_nerf.training.include_sharpness_in_error;
 	// This is low-overhead enough to warrant always being on.
 	// It makes for useful visualizations of the training error.
-	bool accumulate_error = true;
+	bool accumulate_error = false;
 
 	CUDA_CHECK_THROW(cudaMemsetAsync(ray_counter, 0, sizeof(uint32_t), stream));
 
 	auto hg_enc = dynamic_cast<MultiLevelEncoding<network_precision_t>*>(m_encoding.get());
+
+	m_jit_fusion = false;
 
 	// RFL training only implemented in JIT training mode.
 	if (!m_jit_fusion && m_nerf.training.train_mode != ETrainMode::Nerf) {
@@ -3251,6 +3258,8 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 			per_sample_extra_dims
 		);
 
+		CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+
 		if (hg_enc) {
 			hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level : nullptr);
 		}
@@ -3258,6 +3267,8 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 		GPUMatrix<float> coords_matrix((float*)coords, floats_per_coord, max_inference);
 		GPUMatrix<network_precision_t> rgbsigma_matrix(mlp_out, padded_output_width, max_inference);
 		m_network->inference_mixed_precision(stream, coords_matrix, rgbsigma_matrix, false);
+		// CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+		// printf("Network inference_mixed_precision finished\n");
 
 		if (hg_enc) {
 			hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level_compacted : nullptr);
@@ -3318,6 +3329,7 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, Testbed::NerfCounters&
 			m_nerf.training.depth_supervision_lambda,
 			m_nerf.training.near_distance
 		);
+		// CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
 	}
 
 	fill_rollover_and_rescale<network_precision_t><<<n_blocks_linear(target_batch_size * padded_output_width), N_THREADS_LINEAR, 0, stream>>>(
