@@ -64,6 +64,8 @@ namespace pbrt
             Float uDist = rng.Uniform<Float>();
             Float uMode = rng.Uniform<Float>();
 
+
+            
             SampledSpectrum T_maj = SampleT_maj(
                 ray, tMax, uDist, rng, lambda,
                 [&](Point3f p, MediumProperties mp, SampledSpectrum sigma_maj,
@@ -106,10 +108,40 @@ namespace pbrt
                         PBRT_DBG("absorbed\n");
                         beta = SampledSpectrum(0.f);
                         // Tell the medium to stop traversal.
+
+
+                        // TODO: Figure out if its better to not log this ray for non-surface interactions (since it could continue onto more medium scattering)
+                        // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
+                        // which deals with newly scattered rays within the medium. For now I just handle an actual interaction 
+                        PendingPixelSample sample;
+                        sample.ray = Ray(p, -ray.d);
+                        sample.beta = beta;
+                        sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
+                        sample.pixelIdx = w.pixelIndex;
+                        SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
+                        sample.L = Lp + L;
+                        sample.depthIdx = wavefrontDepth;
+                        rayLogQueue->Push(sample);
+
                         return false;
                     }
                     else if (mode == 1)
                     {
+                        // TODO: Figure out if its better to not log this ray for non-surface interactions (since it could continue onto more medium scattering)
+                        // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
+                        // which deals with newly scattered rays within the medium. For now I just handle an actual interaction 
+                        // TODO: Also figure out if i want the beta to be logged before or after it is updated
+                        PendingPixelSample sample;
+                        sample.ray = Ray(p, -ray.d);
+                        sample.beta = beta;
+                        sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
+                        sample.pixelIdx = w.pixelIndex;
+                        SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
+                        sample.depthIdx = wavefrontDepth;
+                        sample.L = Lp + L;
+
+                        rayLogQueue->Push(sample);
+
                         // Scattering.
                         PBRT_DBG("scattered\n");
                         Float pr = T_maj[0] * mp.sigma_s[0];
@@ -130,6 +162,8 @@ namespace pbrt
                             mp.phase.Dispatch(enqueue);
 
                         scattered = true;
+
+
 
                         return false;
                     }
@@ -174,6 +208,7 @@ namespace pbrt
                 outputRayData.lambda[w.pixelIndex] = w.lambda;
                 PBRT_DBG("Added emitted radiance %f %f %f %f at pixel index %d\n", L[0],
                     L[1], L[2], L[3], w.pixelIndex);
+
             }
 
             // There's no more work to do if there was a scattering event in
@@ -289,8 +324,7 @@ namespace pbrt
                     return;
                 }
             }
-
-            if (!mimicSimple)
+            else
             {
 
                 //TODO: Check if I can actually use this, might be relevant to infinit lights/might be done 

@@ -399,6 +399,21 @@ namespace pbrt
         SampledSpectrum sigma;
     };
 
+
+
+    struct PendingPixelSample
+    {
+        int pixelIdx;
+        int depthIdx;
+        Ray ray;
+        SampledSpectrum beta;
+        SampledSpectrum L;
+        bool isVolumetric = false;
+    };
+
+    using RayLoggingWorkQueue = WorkQueue<PendingPixelSample>;
+
+
 #include "wavefront_workitems_soa.h"
 
     // RayQueue Definition

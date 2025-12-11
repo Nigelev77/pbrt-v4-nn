@@ -191,3 +191,12 @@ soa MaterialEvalWorkItem<ConcreteMaterial> {
     MediumInterface mediumInterface;
     int pixelIndex;
 };
+
+soa PendingPixelSample {
+    int pixelIdx;
+    int depthIdx;
+    Ray ray;
+    SampledSpectrum beta;
+    SampledSpectrum L;
+    int isVolumetric;
+};

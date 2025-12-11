@@ -81,6 +81,8 @@ namespace pbrt
         void SampleMediumScattering(int wavefrontDepth);
         void SampleSubsurface(int wavefrontDepth);
 
+        void HandleRayLogging(int wavefrontDepth, int sampleIndex);
+
         void HandleEscapedRays();
         void HandleEmissiveIntersection();
 
@@ -91,10 +93,12 @@ namespace pbrt
         void EvaluateMaterialAndBSDF(MaterialEvalQueue* evalQueue, Transform movingFromCamera,
             int wavefrontDepth);
 
-        void CopyRayWorkItems(int wavefrontDepth);
+        void CopyRayWorkItems(int wavefrontDepth, int sampleIndex);
 
         void UpdateFilm();
         void OutputRayDataToFiles();
+        void OutputTargetLuminanceAndRGBToFiles();
+
 
         WavefrontPathIntegrator(pstd::pmr::memory_resource* memoryResource,
             BasicScene& scene);
@@ -184,6 +188,8 @@ namespace pbrt
         SOA<InputRayData> inputRayData;
         SOA<OutputRayData> outputRayData;
 
+
+
         RayQueue* rayQueues[2];
 
         WavefrontAggregate* aggregate = nullptr;
@@ -203,14 +209,28 @@ namespace pbrt
         GetBSSRDFAndProbeRayQueue* bssrdfEvalQueue = nullptr;
         SubsurfaceScatterQueue* subsurfaceScatterQueue = nullptr;
 
+        RayLoggingWorkQueue* rayLogQueue = nullptr;
+
+        //TODO: Need to create a vector/map to hold intermittent/target radiances for rays where there is 
+        // volume->surface->volume. If i wanted to focus on JUST volume scattering,
+        // then the target luminance will not match the l_final - l_acc because there will be intermittent 
+        // surface scattering which won't be captured
+        // thus, the new l_final will actually be l_next_surface_scattering - (l_acc - l_last_surface_scattering) 
+        // so i'll need to resolve these "chains".
+        
+
         RGB* displayRGB = nullptr, * displayRGBHost = nullptr;
         std::atomic<bool>* exitCopyThread;
         std::thread* copyThread;
         bool mimicSimple = false;
         bool outputToFile = false;
+        bool outputProperTargetLuminance = true;
 
         std::ofstream* outputRayDataFile = nullptr;
         std::ofstream* inputRayDataFile = nullptr;
+
+
+
     };
 
 }  // namespace pbrt

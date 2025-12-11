@@ -8,10 +8,85 @@
 #endif
 namespace pbrt
 {
+    constexpr uint64_t kMaxBytes = 4 * 1024ull * 1024ull * 1024ull;
+
+    void WavefrontPathIntegrator::HandleRayLogging(int depthIndex, int sampleIndex)
+    {
+        int nItems = rayLogQueue->Size();
+        if(nItems == 0) return;
+
+
+
+        
+        // NOTE: Due to SOA, can't easily just do a cudaMemcpy. Therefore, just copy over and do the work here.
+        // TODO: Figure out a way to just be able to perform a memcpy and just copy this over from the GPU side in 1 go.
+        // And then i can probably set the writing off to be in a separate thread or something like that.
+        if (Options->useGPU) {
+#ifdef PBRT_BUILD_GPU_RENDERER
+            GPUWait();
+#endif
+        }
+
+        std::vector<PendingPixelSample> samples(nItems);
+        for (int i = 0; i < nItems; ++i)
+            samples[i] = (*rayLogQueue)[i];
+
+
+
+        //TODO: Consider using a cudaMemcpy(Async) to perform this so its slightly quicker.
+        for (const auto& sample : samples)
+        {
+            const int pixelIndex = sample.pixelIdx;
+            // Read data from SOA structure
+            Point3f p = sample.ray.o;
+            Vector3f wo = sample.ray.d;
+            SampledSpectrum beta = sample.beta;
+            SampledSpectrum L_prefix = sample.L;
+            int depthIdx = sample.depthIdx;
+            SampledSpectrum L_final = outputRayData.L[pixelIndex];
+            SampledWavelengths lambda = outputRayData.lambda[pixelIndex];
+
+
+            //TODO: Figure out proper way to deal with this
+            if(sample.beta == SampledSpectrum(0.f))
+            {
+                continue;
+            }
+
+            SampledSpectrum L_target = (L_final - L_prefix) / sample.beta;
+
+
+            RGB rgb = film.ToOutputRGB(L_target, lambda);
+
+            if(L_target.HasNaNs() | rgb.r == Infinity | rgb.g == Infinity | rgb.b == Infinity)
+            {
+                continue;
+            }
+            
+            // std::string inputLine = StringPrintf("Pixel (o: %s, d: %s) PixelIdx (%d) Sample (%d) InitialDepth (%d)\n",
+            //     iRayo.ToString(), iRayd.ToString(), pixelIndex, iSampleIdx, iDepth
+            // );
+            // inputRayDataFile->write(inputLine.c_str(), inputLine.length());
+
+            std::string outputLine = StringPrintf(
+                "Ray (p: %s, wo: %s) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%s) RGB (%s)\n",
+                p.ToString(), wo.ToString(), pixelIndex, sampleIndex, depthIdx, 
+                L_target.ToString(), rgb.ToString()
+            );
+            outputRayDataFile->write(outputLine.c_str(), outputLine.length());
+        }
+        outputRayDataFile->flush();
+
+        rayLogQueue->Reset();
+    }
+    
+
+
     void WavefrontPathIntegrator::OutputRayDataToFiles()
     {
         if (!outputToFile || !outputRayDataFile || !inputRayDataFile) return;
         // INFO: Wait for GPU synchronization
+
 #ifdef PBRT_BUILD_GPU_RENDERER
         GPUWait();
 #endif
@@ -20,7 +95,6 @@ namespace pbrt
 
         //For now, we just set a limit on the size of the files, set to 1GB for now
                 // Ensure file pointers are positioned at the end so writes append.
-        const uint64_t kMaxBytes = 4 * 1024ull * 1024ull * 1024ull;
 
         auto outPos = outputRayDataFile->tellp();
         auto inPos  = inputRayDataFile->tellp();

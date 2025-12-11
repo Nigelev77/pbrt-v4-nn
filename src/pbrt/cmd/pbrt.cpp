@@ -311,7 +311,6 @@ int main(int argc, char* argv[])
         // Parse provided scene description files
         BasicScene scene;
         BasicSceneBuilder builder(&scene);
-        builder.currentCamera = 1;
         ParseFiles(&builder, filenames);
 
 

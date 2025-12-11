@@ -207,8 +207,6 @@ namespace pbrt
                 scene.integrator.name);
 
 
-
-        // Integrator parameters
         regularize = scene.integrator.parameters.GetOneBool("regularize", false);
         maxDepth = scene.integrator.parameters.GetOneInt("maxdepth", 5);
 
@@ -283,6 +281,8 @@ namespace pbrt
             pstd::MakeConstSpan(&haveUniversalEvalMaterial[1],
                 haveUniversalEvalMaterial.size() - 1));
 
+        rayLogQueue = alloc.new_object<RayLoggingWorkQueue>(maxQueueSize, alloc);
+
         if (haveMedia)
         {
             mediumSampleQueue = alloc.new_object<MediumSampleQueue>(maxQueueSize, alloc);
@@ -317,7 +317,17 @@ namespace pbrt
         {
             outputToFile = true;
             inputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_INPUT_FILE, std::ios::app);
-            outputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_OUTPUT_FILE, std::ios::app);
+            if(outputProperTargetLuminance)
+            {
+                outputRayDataFile =
+                    new std::ofstream(DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET, std::ios::app);
+
+            } else {
+                outputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_OUTPUT_FILE, std::ios::app);
+
+            }
+            std::string version_header = outputProperTargetLuminance ? "version 1.1\n" : "version 1.0\n";
+            outputRayDataFile->write(version_header.c_str(), version_header.length());
         }
 
     }
@@ -369,6 +379,8 @@ namespace pbrt
 
         if (mediumSampleQueue) { mediumSampleQueue->Free(alloc); alloc.delete_object(mediumSampleQueue); }
         if (mediumScatterQueue) { mediumScatterQueue->Free(alloc); alloc.delete_object(mediumScatterQueue); }
+
+        if (rayLogQueue) { rayLogQueue->Free(alloc); alloc.delete_object(rayLogQueue); }
 
         if (stats) alloc.delete_object(stats);
 
@@ -605,7 +617,28 @@ namespace pbrt
                         }
                     }
 
-                    OutputRayDataToFiles();
+
+                    if(outputProperTargetLuminance)
+                    {
+                        HandleRayLogging(maxDepth, sampleIndex);
+
+                    }
+                    else
+                    {
+                        OutputRayDataToFiles();
+                    }
+
+                    {
+                        // ForAllQueued(
+                        //     "Log Rays", rayLogQueue, maxQueueSize,
+                        //     PBRT_CPU_GPU_LAMBDA(const PendingPixelSample sample) {
+                        //         // We can access pixelSampleState because it's captured or available globally
+                        //         SampledSpectrum L_final = pixelSampleState.L[item.pixelIdx];
+                        //         //... (Math from step 4)...
+                        //     });
+                        // // 3. IMPORTANT: Reset the queue for the next frame/sample!
+                        // rayLogQueue->Reset();
+                    }
 
                     UpdateFilm();
                 }
