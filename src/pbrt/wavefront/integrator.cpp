@@ -281,7 +281,9 @@ namespace pbrt
             pstd::MakeConstSpan(&haveUniversalEvalMaterial[1],
                 haveUniversalEvalMaterial.size() - 1));
 
-        rayLogQueue = alloc.new_object<RayLoggingWorkQueue>(maxQueueSize, alloc);
+        // TODO: Calculate a better upper limit for the ray log queue size
+        const int maxRayLogQueueSize = maxQueueSize * maxDepth * 2;
+        rayLogQueue = alloc.new_object<RayLoggingWorkQueue>(maxRayLogQueueSize, alloc);
 
         if (haveMedia)
         {
