@@ -21,7 +21,7 @@
 *Build a new FC module (e.g., in network.cu) that takes the encoded features and optional auxiliary inputs (material ID, viewing angle) and predicts RGB.
 *During training, forward pass = encode inputs → feed to FC head → compute loss vs ground truth.
 *Optionally pretrain the hash encoder using standard Instant-NGP, then load its weights and train only the FC head (or fine-tune both jointly).
-*Training loop: identical data pipeline, but your optimizer updates both the hash-table entries and the FC head unless you freeze one. Instant-NGP already supports custom network configs via *.json descriptors—you can define a “composite” network where the “encoding” is Instant-NGP’s hash grid and the “network” block is your extended MLP.
+*Training loop: identical data pipeline, but your optimizer updates both the hash-table entries and the FC head unless you freeze one. Instant-NGP already supports custom network configs via descriptors *.jsonyou can define a “composite” network where the “encoding” is Instant-NGP’s hash grid and the “network” block is your extended MLP.
 *This gives you a high-level recipe both for straight Instant-NGP training on your ray/radiance dumps and for a hybrid approach with an additional prediction head.
 *
 *
@@ -99,7 +99,7 @@ using namespace ngp;
 //Store the ground-truth radiance directly in the pixel buffer: instead of loading PNGs, serialize your float RGB (or spectral) into an EXR-equivalent block and set image_type = EImageDataType::Float so set_training_image uploads it untouched. If you do not have a texture per ray, you can bypass image loading entirely by synthesizing a buffer and calling result.set_training_image manually with your radiance array.
 //Metadata & Extra Inputs (NerfDataset, TrainingImageMetadata)
 //
-//Use result.n_extra_learnable_dims and metadata[i].light_dir/extra_dims_gpu to feed side-channel values. The NeRF pipeline already supports “appearance embeddings” per image; you can repurpose them to carry arbitrary per-ray scalars by writing into TrainingImageMetadata::extra_metadata and bumping n_extra_learnable_dims.
+//Use result.n_extra_learnable_dims and metadata[i].light_dir/extra_dims_gpu to feed side-channel values. The NeRF pipeline already supports “appearanceper image; you can repurpose them to carry arbitrary per-ray scalars by writing into TrainingImageMetadata::extra_metadata and bumping n_extra_learnable_dims. embeddings
 //When you call result.nerf_ray_to_ngp(dst.rays[px]), append your extra metadata conversion there (or add a sibling helper) so all rays are normalized to the hash grid’s coordinate system before they reach CUDA.
 //Training Pipeline Touchpoints (testbed_nerf.cu, nerf_training.cuh)
 //
@@ -170,7 +170,7 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
 {
     // TODO(parser-validation): handle unreadable files gracefully and replace this std::count usage
     // with an actual '\n' count (std::count expects a value, not a predicate lambda).
-    std::ifstream f{native_string(path), std::ios::in};
+    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
     if (!f.is_open()) throw std::runtime_error("Failed to open file");
     //TODO: Find faster way to get line count, for now it is harcoded (i know how much it is)
 
@@ -198,11 +198,10 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
     int rayCount = 0;
     int ptr = 0;
     int frameIdx = 0;
-    for(int i = 0; i < count; ++i)
+    int linesRead = 0;
+    for (std::string line; std::getline(f, line);)
     {
-        std::string line;
-        if(!std::getline(f, line))
-            throw std::runtime_error("Failed to read line...\n");
+        linesRead++;
         
         char oBuf[64];
         char dBuf[64];
@@ -252,7 +251,7 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
             memcpy(frameRay, rays, rayCount*sizeof(Ray));
             memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
             memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
-            memcpy(frameRGBAs, rgbas, rayCount*sizeof(float));
+            memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
             ivec2 res{rayCount, 1};
             LoadedRayInfo info;
             info.res = res;
@@ -285,7 +284,7 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
         memcpy(frameRay, rays, rayCount*sizeof(Ray));
         memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
         memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
-        memcpy(frameRGBAs, rgbas, rayCount*sizeof(float));
+        memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
         ivec2 res{rayCount, 1};
         LoadedRayInfo info;
         info.res = res;
@@ -301,6 +300,7 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
     }
     
     tlog::success() << "Loaded " << frameRayData.size() << "\n";        
+    tlog::success() << "Read " << linesRead << "\n";
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
 
     delete[] rays;
@@ -375,10 +375,45 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     
     // Override default scale/offset to ensure raw PBRT rays are not transformed
     // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
-    //TODO: Check if I actually do want the default scale = 0.33
-    //TODO: Check if it has the correct aabb bounds
-    nerf_data.scale = 1.0f;
-    nerf_data.offset = vec3(0.0f);
+    
+    // Calculate scene bounding box to normalize rays
+    vec3 min_bound = vec3(1e30f);
+    vec3 max_bound = vec3(-1e30f);
+
+    for (const auto &frame : frameRayData) {
+        for (int i = 0; i < frame.res.x; ++i) {
+            const auto &ray = frame.rays[i];
+            min_bound = min(min_bound, ray.o);
+            max_bound = max(max_bound, ray.o);
+        }
+    }
+
+    tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
+                 << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
+                 << max_bound.z << "]";
+
+    // Compute scale and offset to fit in [0.05, 0.95]
+    vec3 size = max_bound - min_bound;
+    float max_dim = std::max({size.x, size.y, size.z});
+    if (max_dim == 0)
+        max_dim = 1.0f;
+    float scale = 0.9f / max_dim;
+    vec3 center = (min_bound + max_bound) * 0.5f;
+    vec3 offset = vec3(0.5f) - center * scale;
+
+    tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
+                 << ", " << offset.y << ", " << offset.z << "]";
+
+    // Apply normalization
+    for (auto &frame : frameRayData) {
+        for (int i = 0; i < frame.res.x; ++i) {
+            auto &ray = frame.rays[i];
+            ray.o = ray.o * scale + offset;
+        }
+    }
+
+    nerf_data.scale = scale;
+    nerf_data.offset = offset;
     
     nerf_data.n_extra_learnable_dims = 2;
     nerf_data.has_rays = true;
@@ -393,7 +428,7 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
         {
             Ray& ray = frame.rays[rIdx];
             ray.d = normalize(ray.d);
-            nerf_data.nerf_ray_to_ngp(ray);
+            // nerf_data.nerf_ray_to_ngp(ray);
         }
 
         // TODO(training-upload): wrap each chunk in result.set_training_image(...) to push radiance data
@@ -425,6 +460,10 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
         // Setup metadata buffers
         nerf_data.metadata[frameIdx].sample_indices = sample_buf.data();
         nerf_data.metadata[frameIdx].final_depths = final_depth_buf.data();
+        
+        tlog::info() << "Frame " << frameIdx << ": rays=" << rayCount 
+                     << " sample_indices=" << (void*)sample_buf.data() 
+                     << " final_depths=" << (void*)final_depth_buf.data();
 
         //TODO: Check if there are any other fields that I need to set for the metadata
         nerf_data.metadata[frameIdx].image_data_type = EImageDataType::Float;
@@ -493,6 +532,52 @@ int main(int argc, char** argv)
     //TODO: Set training mode
     testbed.set_mode(ETestbedMode::Nerf);
 
+    // Manually load config to ensure dir_encoding and rgb_network are present
+    // This prevents crash at reset_network() because default config lacks these fields
+    // required for NeRF mode
+    nlohmann::json config = {
+        {"loss", {{"otype", "Huber"}}},
+        {"optimizer",
+         {{"otype", "Ema"},
+          {"decay", 0.95},
+          {"nested",
+           {{"otype", "ExponentialDecay"},
+            {"decay_start", 20000},
+            {"decay_interval", 10000},
+            {"decay_base", 0.33},
+            {"nested",
+             {{"otype", "Adam"},
+              {"learning_rate", 1e-2},
+              {"beta1", 0.9},
+              {"beta2", 0.99},
+              {"epsilon", 1e-15},
+              {"l2_reg", 1e-6}}}}}}},
+        {"encoding",
+         {{"otype", "HashGrid"},
+          {"n_levels", 8},
+          {"n_features_per_level", 4},
+          {"log2_hashmap_size", 19},
+          {"base_resolution", 16}}},
+        {"network",
+         {{"otype", "FullyFusedMLP"},
+          {"activation", "ReLU"},
+          {"output_activation", "None"},
+          {"n_neurons", 64},
+          {"n_hidden_layers", 1}}},
+        {"dir_encoding",
+         {{"otype", "Composite"},
+          {"nested",
+           {{{"n_dims_to_encode", 3}, {"otype", "SphericalHarmonics"}, {"degree", 4}},
+            {{"otype", "Identity"}}}}}},
+        {"rgb_network",
+         {{"otype", "FullyFusedMLP"},
+          {"activation", "ReLU"},
+          {"output_activation", "None"},
+          {"n_neurons", 64},
+          {"n_hidden_layers", 2}}}};
+
+    testbed.reload_network_from_json(config);
+
     //TODO: Load Nerf 
     load_nerfdataset(nerf_data, meta_extras, data_path);
     
@@ -503,9 +588,24 @@ int main(int argc, char** argv)
 
     // Initialize training state (gradients, optimizers, etc.)
     testbed.load_nerf_post();
+    
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError());
+
+    testbed.m_train = true;
+    testbed.m_training_batch_size = 1 << 18;
+    testbed.m_training_data_available = true;
+    nerf_data.n_extra_learnable_dims = 2;
 
     // Training loop
+    uint64_t curr_frame = 0;
     while (testbed.frame()) {
+        if (!(curr_frame % 100000)) {
+            tlog::info() << "Done " << curr_frame << " frames\n";
+            tlog::info() << "iteration=" << testbed.m_training_step
+                         << " loss=" << testbed.m_loss_scalar.val();
+        }
+        curr_frame++;
         // The frame() function handles training steps if m_train is true.
     }
 
