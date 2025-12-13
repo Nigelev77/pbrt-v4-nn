@@ -24,6 +24,10 @@
 #include <pbrt/wavefront/workqueue.h>
 
 #include <fstream>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <queue>
 
 namespace pbrt
 {
@@ -61,6 +65,15 @@ namespace pbrt
     class WavefrontPathIntegrator
     {
     public:
+
+        struct RayLogBatch
+        {
+            // std::vector<PendingPixelSample> samples;
+            std::vector<TrainingDataSample> trainingData;
+            // std::vector<SampledSpectrum> finalLValues; 
+            // std::vector<SampledWavelengths> lambdas;
+            int sampleIndex;
+        };
 
         ~WavefrontPathIntegrator();
 
@@ -210,6 +223,8 @@ namespace pbrt
         SubsurfaceScatterQueue* subsurfaceScatterQueue = nullptr;
 
         RayLoggingWorkQueue* rayLogQueue = nullptr;
+        
+
 
         //TODO: Need to create a vector/map to hold intermittent/target radiances for rays where there is 
         // volume->surface->volume. If i wanted to focus on JUST volume scattering,
@@ -220,6 +235,12 @@ namespace pbrt
         
 
         RGB* displayRGB = nullptr, * displayRGBHost = nullptr;
+        // PBRT_GPU PendingPixelSample* pendingSamples = nullptr;
+        TrainingDataSample* pendingRayData = nullptr;
+        int pendingSamplesMaxSize = 0;
+        
+        int* pendingSamplesCnt = nullptr;
+
         std::atomic<bool>* exitCopyThread;
         std::thread* copyThread;
         bool mimicSimple = false;
@@ -229,8 +250,15 @@ namespace pbrt
         std::ofstream* outputRayDataFile = nullptr;
         std::ofstream* inputRayDataFile = nullptr;
 
+        // Thread primitives
+        std::vector<std::thread> rayLogThreads;
+        std::queue<RayLogBatch>  rayLogWorkQueue;
+        std::mutex               rayLogMutex;
+        std::condition_variable  rayLogCondition;
+        std::atomic<bool>        rayLogShutdown{false};
+        std::mutex               rayLogFileMutex;
 
-
+        void RayLogWorker();
     };
 
 }  // namespace pbrt

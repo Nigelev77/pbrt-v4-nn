@@ -30,6 +30,12 @@ namespace pbrt
             return;
 
         RayQueue* nextRayQueue = NextRayQueue(wavefrontDepth);
+
+
+        auto pendingRayData = this->pendingRayData;
+        auto pendingSamplesCnt = this->pendingSamplesCnt;
+        int pendingSamplesMaxSize = this->pendingSamplesMaxSize;
+
         ForAllQueued(
             "Sample medium interaction", mediumSampleQueue, maxQueueSize,
             PBRT_CPU_GPU_LAMBDA(MediumSampleWorkItem w) {
@@ -64,7 +70,11 @@ namespace pbrt
             Float uDist = rng.Uniform<Float>();
             Float uMode = rng.Uniform<Float>();
 
-
+            // Ray and Spectral state before sampling
+            const Point3f p = ray.o;
+            const Vector3f wo = ray.d;
+            const SampledSpectrum beta_before = w.beta;
+            const SampledSpectrum L_before = pixelSampleState.L[w.pixelIndex];
             
             SampledSpectrum T_maj = SampleT_maj(
                 ray, tMax, uDist, rng, lambda,
@@ -113,15 +123,26 @@ namespace pbrt
                         // TODO: Figure out if its better to not log this ray for non-surface interactions (since it could continue onto more medium scattering)
                         // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
                         // which deals with newly scattered rays within the medium. For now I just handle an actual interaction 
-                        PendingPixelSample sample;
-                        sample.ray = Ray(p, -ray.d);
-                        sample.beta = beta;
-                        sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
-                        sample.pixelIdx = w.pixelIndex;
-                        SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
-                        sample.L = Lp + L;
-                        sample.depthIdx = wavefrontDepth;
-                        rayLogQueue->Push(sample);
+//                         PendingPixelSample sample;
+//                         sample.ray = Ray(p, -ray.d);
+//                         sample.beta = beta;
+//                         sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
+//                         sample.pixelIdx = w.pixelIndex;
+//                         SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
+//                         sample.L = Lp + L;
+//                         sample.depthIdx = wavefrontDepth;
+                        
+// #ifdef PBRT_IS_GPU_CODE
+//                         int index = atomicAdd(pendingSamplesCnt, 1);
+// #else
+//                         int index = __sync_fetch_and_add(pendingSamplesCnt, 1);
+// #endif
+//                         if(index < pendingSamplesMaxSize)
+//                         {
+//                             // Do realloc
+//                             pendingSamples[index] = sample;
+//                         }
+                        // rayLogQueue->Push(sample);
 
                         return false;
                     }
@@ -131,16 +152,25 @@ namespace pbrt
                         // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
                         // which deals with newly scattered rays within the medium. For now I just handle an actual interaction 
                         // TODO: Also figure out if i want the beta to be logged before or after it is updated
-                        PendingPixelSample sample;
-                        sample.ray = Ray(p, -ray.d);
-                        sample.beta = beta;
-                        sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
-                        sample.pixelIdx = w.pixelIndex;
-                        SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
-                        sample.depthIdx = wavefrontDepth;
-                        sample.L = Lp + L;
-
-                        rayLogQueue->Push(sample);
+//                         PendingPixelSample sample;
+//                         sample.ray = Ray(p, -ray.d);
+//                         sample.beta = beta;
+//                         sample.isVolumetric = scattered || !beta || !r_u || w.depth == maxDepth;
+//                         sample.pixelIdx = w.pixelIndex;
+//                         SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
+//                         sample.depthIdx = wavefrontDepth;
+//                         sample.L = Lp + L;
+// #ifdef PBRT_IS_GPU_CODE
+//                         int index = atomicAdd(pendingSamplesCnt, 1);
+// #else
+//                         int index = __sync_fetch_and_add(pendingSamplesCnt, 1);
+// #endif
+//                         if(index < pendingSamplesMaxSize)
+//                         {
+//                             // Do realloc
+//                             pendingSamples[index] = sample;
+//                         }
+                        // rayLogQueue->Push(sample);
 
                         // Scattering.
                         PBRT_DBG("scattered\n");
@@ -193,6 +223,7 @@ namespace pbrt
                 r_l *= T_maj / T_maj[0];
             }
 
+
             PBRT_DBG("Post ray medium sample L %f %f %f %f beta %f %f %f %f\n", L[0],
                 L[1], L[2], L[3], beta[0], beta[1], beta[2], beta[3]);
             PBRT_DBG("Post ray medium sample r_u %f %f %f %f r_l %f %f %f %f\n",
@@ -209,6 +240,41 @@ namespace pbrt
                 PBRT_DBG("Added emitted radiance %f %f %f %f at pixel index %d\n", L[0],
                     L[1], L[2], L[3], w.pixelIndex);
 
+            }
+
+
+            // Calculate targets after
+            SampledSpectrum L_target_added = L;
+            SampledSpectrum T_target = (beta_before == SampledSpectrum(0.f)) ? SampledSpectrum(0.f) : (beta / beta_before);
+
+            //TODO: add a field to convert to RGB as well
+            {
+                TrainingDataSample dataSample;
+                dataSample.pixelIdx = w.pixelIndex;
+                dataSample.rayo = p;
+                dataSample.rayd = wo;
+                dataSample.tMax = tMax;
+                dataSample.L_Before = L_before;
+                dataSample.L_After = L_target_added;
+                dataSample.L_added = L_target_added - L_before;
+                dataSample.beta_before = beta_before;
+                dataSample.beta_after = T_target;
+                dataSample.beta_before_rgb = film.ToOutputRGB(beta_before, w.lambda);
+                dataSample.L_after_rgb = film.ToOutputRGB(L_target_added, w.lambda);
+                dataSample.T_after = film.ToOutputRGB(T_target, w.lambda);
+
+                                        
+#ifdef PBRT_IS_GPU_CODE
+                int index = atomicAdd(pendingSamplesCnt, 1);
+#else
+                int index = __sync_fetch_and_add(pendingSamplesCnt, 1);
+#endif
+                if(index < pendingSamplesMaxSize)
+                {
+                    pendingRayData[index] = dataSample;
+                }
+
+                //TODO: Add to a buffer to copy over
             }
 
             // There's no more work to do if there was a scattering event in

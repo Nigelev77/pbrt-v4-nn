@@ -411,6 +411,22 @@ namespace pbrt
         bool isVolumetric = false;
     };
 
+    struct TrainingDataSample
+    {
+        int pixelIdx;
+        Point3f rayo;
+        Vector3f rayd;
+        float tMax;
+        SampledSpectrum L_Before;
+        SampledSpectrum L_After;
+        SampledSpectrum beta_before;
+        SampledSpectrum beta_after;
+        SampledSpectrum L_added;
+        RGB beta_before_rgb;
+        RGB T_after;
+        RGB L_after_rgb;
+    };
+
     using RayLoggingWorkQueue = WorkQueue<PendingPixelSample>;
 
 

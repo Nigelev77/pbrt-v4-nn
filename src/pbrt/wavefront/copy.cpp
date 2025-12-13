@@ -9,75 +9,229 @@
 namespace pbrt
 {
     constexpr uint64_t kMaxBytes = 4 * 1024ull * 1024ull * 1024ull;
+    constexpr bool optimized_output = false;
+    constexpr bool use_volume_training_data = true;
+
+
+    void WavefrontPathIntegrator::RayLogWorker()
+    {
+        while(true)
+        {
+            RayLogBatch batch;
+
+            // Wait for work
+            {
+                std::unique_lock<std::mutex> lock(rayLogMutex);
+
+                rayLogCondition.wait(lock, [this]
+                {
+                    return rayLogShutdown || !rayLogWorkQueue.empty();
+                });
+
+                if(rayLogShutdown && rayLogWorkQueue.empty()) break;
+
+
+                batch = std::move(rayLogWorkQueue.front());
+                rayLogWorkQueue.pop();
+            }
+
+            // Process batch
+            {
+                std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
+
+                auto outPos = outputRayDataFile->tellp();
+                auto inPos  = inputRayDataFile->tellp();
+    
+                // If tellp() is not valid, try seeking to end and re-query.
+                if (outPos == std::streampos(-1) || inPos == std::streampos(-1)) {
+                    outputRayDataFile->seekp(0, std::ios::end);
+                    inputRayDataFile->seekp(0, std::ios::end);
+                    outPos = outputRayDataFile->tellp();
+                    inPos  = inputRayDataFile->tellp();
+                }
+    
+                // If either file is already >= 1 GiB, don't write anything.
+                if ((outPos != std::streampos(-1) && static_cast<uint64_t>(outPos) >= kMaxBytes) ||
+                    (inPos  != std::streampos(-1) && static_cast<uint64_t>(inPos)  >= kMaxBytes)) {
+                    LOG_VERBOSE("Files are larger than 1GB, skipping outputting...\n");
+                    return;
+                }
+            }
+
+            std::string batchOutput;
+            batchOutput.reserve(batch.trainingData.size() * 150);
+
+            for(size_t i = 0; i < batch.trainingData.size(); ++i)
+            {
+                // const auto& sample = batch.samples[i];
+                const auto& trainingSample = batch.trainingData[i];
+                // const auto& L_final = batch.finalLValues[i];
+                // const auto& lambda = batch.lambdas[i];
+
+                // if(sample.beta == SampledSpectrum(0.f)) continue;
+
+                // SampledSpectrum L_target = (L_final - sample.L) / sample.beta;
+                // RGB rgb = film.ToOutputRGB(L_target, lambda);
+
+                // if(L_target.HasNaNs() || rgb.r == Infinity || rgb.g == Infinity || rgb.b == Infinity) continue;
+
+                
+                if(optimized_output)
+                {
+                    
+                }
+                else
+                {
+                        // "Ray (p: %s, wo: %s) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%s) RGB (%s)\n",
+                    
+                    if(use_volume_training_data)
+                    {
+                        // TODO: Figure out if I want to use RGB or luminance values.
+                        batchOutput += StringPrintf(
+                            "%s|%s|%s|%s|%s\n",
+                            trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
+                            trainingSample.beta_before_rgb.ToString(),
+                            trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString()
+                        );
+                    }
+                    else
+                    {
+                            
+                        // batchOutput += StringPrintf(
+                        //     "%s|%s|%d|%d|%d|%s|%s\n",
+                        //     sample.ray.o.ToString(), sample.ray.d.ToString(), sample.pixelIdx, batch.sampleIndex,
+                        //     L_target.ToString(), rgb.ToString()
+                        // );
+                    }
+
+
+                }
+            }
+
+            if(!batchOutput.empty())
+            {
+                std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
+                if(outputRayDataFile)
+                {
+                    outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
+                    outputRayDataFile->flush();
+                }
+            }
+        }
+    }
 
     void WavefrontPathIntegrator::HandleRayLogging(int depthIndex, int sampleIndex)
     {
-        int nItems = rayLogQueue->Size();
+        if(!Options->useGPU) return;
+
+
+        int nItems = 0;
+
+        CUDA_CHECK(cudaMemcpy(&nItems, pendingSamplesCnt, sizeof(int), cudaMemcpyDeviceToHost));
         if(nItems == 0) return;
 
 
+        int nToCopy = std::min(nItems, pendingSamplesMaxSize);
 
+
+        GPUWait();
         
         // NOTE: Due to SOA, can't easily just do a cudaMemcpy. Therefore, just copy over and do the work here.
         // TODO: Figure out a way to just be able to perform a memcpy and just copy this over from the GPU side in 1 go.
         // And then i can probably set the writing off to be in a separate thread or something like that.
-        if (Options->useGPU) {
-#ifdef PBRT_BUILD_GPU_RENDERER
-            GPUWait();
-#endif
+        
+
+    
+        std::vector<TrainingDataSample> samples(nToCopy);
+        
+        CUDA_CHECK(cudaMemcpy(samples.data(), pendingRayData, nToCopy * sizeof(TrainingDataSample), cudaMemcpyDeviceToHost));
+        CUDA_CHECK(cudaMemset(pendingSamplesCnt, 0, sizeof(int)));
+
+        if(samples.empty()) return;
+
+        //Prepare batch
+        RayLogBatch batch;
+
+        batch.sampleIndex = sampleIndex;
+        batch.trainingData = std::move(samples);
+
+
+        nItems = batch.trainingData.size();
+        // batch.finalLValues.resize(nItems);
+        // batch.lambdas.resize(nItems);
+
+
+        // Gather step
+        for(size_t i = 0; i < nItems; ++i)
+        {
+            // int pixelIdx = batch.trainingData[i].pixelIdx;
+            // Note: If outputRayData is on GPU, this loop might be slow. 
+            // Ideally, you would use a CUDA kernel to gather these into a buffer first.
+            // batch.finalLValues[i] = outputRayData.L[pixelIdx];
+            // batch.lambdas[i] = outputRayData.lambda[pixelIdx];
         }
 
-        std::vector<PendingPixelSample> samples(nItems);
-        for (int i = 0; i < nItems; ++i)
-            samples[i] = (*rayLogQueue)[i];
+        //Push to queue
+        {
+            std::lock_guard<std::mutex> lock(rayLogMutex);
+            rayLogWorkQueue.push(std::move(batch));
+        }
 
+        rayLogCondition.notify_one();
 
+        
+        // for (int i = 0; i < nItems; ++i)
+        //     samples[i] = (*rayLogQueue)[i];
 
         //TODO: Consider using a cudaMemcpy(Async) to perform this so its slightly quicker.
-        for (const auto& sample : samples)
-        {
-            const int pixelIndex = sample.pixelIdx;
-            // Read data from SOA structure
-            Point3f p = sample.ray.o;
-            Vector3f wo = sample.ray.d;
-            SampledSpectrum beta = sample.beta;
-            SampledSpectrum L_prefix = sample.L;
-            int depthIdx = sample.depthIdx;
-            SampledSpectrum L_final = outputRayData.L[pixelIndex];
-            SampledWavelengths lambda = outputRayData.lambda[pixelIndex];
+        // for (const auto& sample : samples)
+        // {
+        //     const int pixelIndex = sample.pixelIdx;
+        //     // Read data from SOA structure
+        //     Point3f p = sample.ray.o;
+        //     Vector3f wo = sample.ray.d;
+        //     SampledSpectrum beta = sample.beta;
+        //     SampledSpectrum L_prefix = sample.L;
+        //     int depthIdx = sample.depthIdx;
+        //     SampledSpectrum L_final = outputRayData.L[pixelIndex];
+        //     SampledWavelengths lambda = outputRayData.lambda[pixelIndex];
 
 
-            //TODO: Figure out proper way to deal with this
-            if(sample.beta == SampledSpectrum(0.f))
-            {
-                continue;
-            }
+        //     //TODO: Figure out proper way to deal with this
+        //     if(sample.beta == SampledSpectrum(0.f))
+        //     {
+        //         continue;
+        //     }
 
-            SampledSpectrum L_target = (L_final - L_prefix) / sample.beta;
+        //     SampledSpectrum L_target = (L_final - L_prefix) / sample.beta;
 
 
-            RGB rgb = film.ToOutputRGB(L_target, lambda);
+        //     RGB rgb = film.ToOutputRGB(L_target, lambda);
 
-            if(L_target.HasNaNs() | rgb.r == Infinity | rgb.g == Infinity | rgb.b == Infinity)
-            {
-                continue;
-            }
+        //     if(L_target.HasNaNs() | rgb.r == Infinity | rgb.g == Infinity | rgb.b == Infinity)
+        //     {
+        //         continue;
+        //     }
             
-            // std::string inputLine = StringPrintf("Pixel (o: %s, d: %s) PixelIdx (%d) Sample (%d) InitialDepth (%d)\n",
-            //     iRayo.ToString(), iRayd.ToString(), pixelIndex, iSampleIdx, iDepth
-            // );
-            // inputRayDataFile->write(inputLine.c_str(), inputLine.length());
+        //     std::string outputLine = StringPrintf(
+        //         "Ray (p: %s, wo: %s) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%s) RGB (%s)\n",
+        //         p.ToString(), wo.ToString(), pixelIndex, sampleIndex, depthIdx, 
+        //         L_target.ToString(), rgb.ToString()
+        //     );
 
-            std::string outputLine = StringPrintf(
-                "Ray (p: %s, wo: %s) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%s) RGB (%s)\n",
-                p.ToString(), wo.ToString(), pixelIndex, sampleIndex, depthIdx, 
-                L_target.ToString(), rgb.ToString()
-            );
-            outputRayDataFile->write(outputLine.c_str(), outputLine.length());
-        }
-        outputRayDataFile->flush();
+        //     batchOutput += StringPrintf(
+        //     "%s|%s|%d|%d|%d|%s|%s\n",
+        //     sample.ray.o.ToString(), sample.ray.d.ToString(), sample.pixelIdx, batch.sampleIndex,
+        //     L_target.ToString(), rgb.ToString()
+        //             );
+        //     outputRayDataFile->write(outputLine.c_str(), outputLine.length());
+        // }
+        // outputRayDataFile->flush();
 
-        rayLogQueue->Reset();
+
+        CUDA_CHECK(cudaMemset(pendingSamplesCnt, 0, sizeof(int)));
+
+        // rayLogQueue->Reset();
     }
     
 

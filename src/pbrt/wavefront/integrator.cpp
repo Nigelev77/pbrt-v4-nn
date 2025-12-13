@@ -282,8 +282,30 @@ namespace pbrt
                 haveUniversalEvalMaterial.size() - 1));
 
         // TODO: Calculate a better upper limit for the ray log queue size
-        const int maxRayLogQueueSize = maxQueueSize * maxDepth * 2;
-        rayLogQueue = alloc.new_object<RayLoggingWorkQueue>(maxRayLogQueueSize, alloc);
+        // const int maxRayLogQueueSize = maxQueueSize * maxDepth * 2;
+        // rayLogQueue = alloc.new_object<RayLoggingWorkQueue>(maxRayLogQueueSize, alloc);
+
+#ifdef PBRT_BUILD_GPU_RENDERER
+        if(Options->useGPU)
+        {
+            pendingSamplesMaxSize = maxQueueSize * maxDepth * 2;
+            
+            // CUDA_CHECK(cudaMalloc(&pendingSamples, pendingSamplesMaxSize * sizeof(PendingPixelSample)));
+            CUDA_CHECK(cudaMalloc(&pendingRayData, pendingSamplesMaxSize * sizeof(TrainingDataSample)));
+            
+            CUDA_CHECK(cudaMalloc(&pendingSamplesCnt, sizeof(int)));
+            CUDA_CHECK(cudaMemset(pendingSamplesCnt, 0, sizeof(int)));
+        }
+#endif
+
+        int numLogThreads = 1;
+        for(int i = 0; i < numLogThreads; ++i)
+        {
+            rayLogThreads.emplace_back(&WavefrontPathIntegrator::RayLogWorker, this);
+        }
+
+
+
 
         if (haveMedia)
         {
@@ -337,6 +359,20 @@ namespace pbrt
 
     WavefrontPathIntegrator::~WavefrontPathIntegrator()
     {
+        {
+            std::lock_guard<std::mutex> lock(rayLogMutex);
+            rayLogShutdown = true;
+        }
+
+        rayLogCondition.notify_all();
+
+
+        // Join Threads
+        for(auto& t : rayLogThreads)
+        {
+            if(t.joinable()) t.join();
+        }
+
         if (outputRayDataFile && outputRayDataFile->is_open())
         {
             outputRayDataFile->close();
@@ -346,6 +382,7 @@ namespace pbrt
         {
             inputRayDataFile->close();
         }
+
 
         StopDisplayThread();
         ClearDisplayDynamic();
@@ -386,6 +423,11 @@ namespace pbrt
 
         if (stats) alloc.delete_object(stats);
 
+        
+        // CUDA_CHECK(cudaFree(pendingSamples));
+        if(pendingRayData) CUDA_CHECK(cudaFree(pendingRayData));
+        if(pendingSamplesCnt) CUDA_CHECK(cudaFree(pendingSamplesCnt));
+
         pixelSampleState.Free(alloc);
         inputRayData.Free(alloc);
         outputRayData.Free(alloc);
@@ -394,6 +436,7 @@ namespace pbrt
             auto lambda = [&](auto ptr) { alloc.delete_object(ptr); };
             lightSampler.Dispatch(lambda);
         }
+
 
         // CUDATrackedMemoryResource* mr =
         //     dynamic_cast<CUDATrackedMemoryResource*>(memoryResource);

@@ -16,9 +16,9 @@ list(INSERT CMAKE_MODULE_PATH 0 "${PBRT_SOURCE_CODE}/cmake")
 
 # Configuration options
 set(SCENE_DIR "${CMAKE_SOURCE_DIR}/scenes")
-SET(PRIMITIVE_OUTPUT_FILE "${CMAKE_SOURCE_DIR}/default_primtive_output.txt")
-SET(PRIMITIVE_OUTPUT_FILE_TARGET_LUMINANCE "${CMAKE_SOURCE_DIR}/default_primtive_output_target.txt")
-SET(PRIMITIVE_INPUT_FILE "${CMAKE_SOURCE_DIR}/default_primtive_input.txt")
+SET(PRIMITIVE_OUTPUT_FILE "${CMAKE_SOURCE_DIR}/default_primitive_output.txt")
+SET(PRIMITIVE_OUTPUT_FILE_TARGET_LUMINANCE "${CMAKE_SOURCE_DIR}/default_primitive_output_target.txt")
+SET(PRIMITIVE_INPUT_FILE "${CMAKE_SOURCE_DIR}/default_primitive_input.txt")
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/pbrt/util/config.h.in
