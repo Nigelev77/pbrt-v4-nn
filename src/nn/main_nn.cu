@@ -166,6 +166,22 @@ struct LoadedRayInfo {
     // float depth_scale = -1.f;
 };
 
+// batchOutput += StringPrintf(
+// "%s|%s|%s|%s|%s\n",
+// trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
+// trainingSample.beta_before_rgb.ToString(),
+// trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString()
+// );
+struct TrainingDataSample
+{
+    ivec2 res = ivec2(0);
+    vec3 *p;
+    vec3 *wo;
+    vec3 *beta_before;
+    vec3 *L_after;
+    vec3 *T_after;
+};
+
 int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::path& path)
 {
     // TODO(parser-validation): handle unreadable files gracefully and replace this std::count usage
