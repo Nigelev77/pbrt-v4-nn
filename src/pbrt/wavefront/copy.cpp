@@ -82,16 +82,16 @@ namespace pbrt
                 }
                 else
                 {
-                        // "Ray (p: %s, wo: %s) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%s) RGB (%s)\n",
-                    
+                    // "rayo|rayd|beta_before|L_after|T_after"
                     if(use_volume_training_data)
                     {
                         // TODO: Figure out if I want to use RGB or luminance values.
                         batchOutput += StringPrintf(
-                            "%s|%s|%s|%s|%s\n",
+                            "%s|%s|%s|%s|%s|%d\n",
                             trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
                             trainingSample.beta_before_rgb.ToString(),
-                            trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString()
+                            trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString(),
+                            batch.sampleIndex
                         );
                     }
                     else

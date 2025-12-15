@@ -172,15 +172,178 @@ struct LoadedRayInfo {
 // trainingSample.beta_before_rgb.ToString(),
 // trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString()
 // );
+// struct TrainingDataSample
+// {
+//     ivec2 res = ivec2(0);
+//     vec3 *p;
+//     vec3 *wo;
+//     vec4 *beta_before;
+//     vec4 *L_after;
+//     vec4 *T_after;
+// };
+
 struct TrainingDataSample
 {
     ivec2 res = ivec2(0);
-    vec3 *p;
-    vec3 *wo;
-    vec3 *beta_before;
-    vec3 *L_after;
-    vec3 *T_after;
+    Ray *rays;
+    vec4 *L_physical;
+    vec4* T;
 };
+
+inline vec4 extract_rgb_from_string(const char* buf)
+{
+    float r, g, b;
+    int read = std::sscanf(buf, "[%f %f %f", &r, &g, &b);
+    return vec4(r, g, b, 1.0);
+}
+
+
+inline vec3 extract_vec_from_string(const char* buf)
+{
+    float x, y, z;
+    int read = std::sscanf(buf, "[%f, %f, %f", &x, &y, &z);
+    return vec3(x, y, z); 
+}
+
+int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSampleData, const fs::path& path)
+{
+    // TODO(parser-validation): handle unreadable files gracefully and replace this std::count usage
+    // with an actual '\n' count (std::count expects a value, not a predicate lambda).
+    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
+    if (!f.is_open()) throw std::runtime_error("Failed to open file");
+    //TODO: Find faster way to get line count, for now it is harcoded (i know how much it is)
+
+    //auto count = std::count(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>(), '\n');
+    const int count = 21772800;
+    f.clear();
+    f.seekg(0, std::ios::beg);
+
+    // Create buffers to hold results of parsing
+    Ray *rays = new Ray[count];
+    vec4 *L_physical = new vec4[count];
+    vec4 *T = new vec4[count];
+
+
+
+    // TODO(radiance-buffer): capture full RGB (or spectral) outputs per ray and pack them exactly
+    // like Instant-NGP's pixel tensors instead of storing only a single luminance.
+    // TODO(rgba-layout): allocate a contiguous float buffer sized n_rays*4, write RGB into
+    // channels [0..2], set A=1 (or unused), and feed it to result.set_training_image so it mirrors
+    // LoadedImageInfo::pixels.
+
+    //we will set 1D array for the luminances/radiances. frames will be equal to sampleIdx i guess.
+    int currSampleIdx = 0;
+    int rayCount = 0;
+    int ptr = 0;
+    int frameIdx = 0;
+    int linesRead = 0;
+    for (std::string line; std::getline(f, line);)
+    {
+        if(line.find("version") != std::string::npos)
+            continue;
+        linesRead++;
+
+        char rayOBuf[64];
+        char rayDBuf[64];
+        char betaBeforeBuf[64];
+        char LAfterBuf[64];
+        char TAfterBuf[64];
+        int sampleIdx;
+        // "rayo|rayd|beta_before|L_after|T_after|sampleIdx"
+
+        int read = std::sscanf(line.c_str(), 
+            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%d",
+            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &sampleIdx
+        );
+        if(read < 5)
+            throw std::runtime_error(std::string("Failed to parse line, only ") + std::to_string(read) + " items read");
+
+        vec3 rayO = extract_vec_from_string(rayOBuf);
+        vec3 rayD = extract_vec_from_string(rayDBuf);
+        vec4 betaBefore = extract_rgb_from_string(betaBeforeBuf);
+        vec4 LAfter = extract_rgb_from_string(LAfterBuf);
+        vec4 TAfter = extract_rgb_from_string(TAfterBuf);
+
+        rays[ptr] = {rayO, rayD};
+        
+        const float epsilon = 1e-6f;
+        for(int c = 0; c < 3; ++c)
+        {
+            if(betaBefore[c] > epsilon)
+            {
+                L_physical[ptr][c] = LAfter[c] / betaBefore[c];
+            }
+            else
+            {
+                L_physical[ptr][c] = 0.f;
+            }
+        }
+
+        T[ptr] = TAfter;
+        
+        rayCount++;
+        ++ptr;
+        if(currSampleIdx != sampleIdx || rayCount >= 4096)
+        {
+            Ray *ray_sample = new Ray[rayCount];
+            vec4 *L_physical_sample = new vec4[rayCount];
+            vec4 *T_sample = new vec4[rayCount];
+
+            memcpy(ray_sample, rays, rayCount * sizeof(Ray));
+            memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
+            memcpy(T_sample, T, rayCount * sizeof(vec4));
+            TrainingDataSample sampleData;
+            sampleData.res = {rayCount, 1};
+            sampleData.rays = ray_sample;
+            sampleData.L_physical = L_physical_sample;
+            sampleData.T = T_sample;
+            trainingSampleData.push_back(sampleData);
+            frameIdx++;
+            currSampleIdx = sampleIdx;
+            ptr = 0;
+            rayCount = 0;
+        }
+        else
+        {
+            ++ptr;
+        }
+    }
+
+    // last samples were not considered:
+    {
+        Ray *ray_sample = new Ray[rayCount];
+        vec4 *L_physical_sample = new vec4[rayCount];
+        vec4 *T_sample = new vec4[rayCount];
+
+        // memcpy(frameRay, rays, rayCount*sizeof(Ray));
+        // memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
+        // memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
+        // memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
+
+        memcpy(ray_sample, rays, rayCount * sizeof(Ray));
+        memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
+        memcpy(T_sample, T, rayCount * sizeof(vec4));
+        TrainingDataSample sampleData;
+        sampleData.res = {rayCount, 1};
+        sampleData.rays = ray_sample;
+        sampleData.L_physical = L_physical_sample;
+        sampleData.T = T_sample;
+        trainingSampleData.push_back(sampleData);
+        frameIdx++;
+        ptr = 0;
+        rayCount = 0;
+    }
+    
+    tlog::success() << "Loaded training sample of size: " << trainingSampleData.size() << "\n";        
+    tlog::success() << "Read " << linesRead << " training samples\n";
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+
+    delete[] rays;
+    delete[] L_physical;
+    delete[] T;
+
+    return frameIdx;
+}
 
 int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::path& path)
 {
@@ -327,6 +490,26 @@ int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::
     return frameIdx;
 }
 
+
+void load_metadata(NerfDataset& nerf_data, MetadataExtras& meta_extras, int frameIdx, int rayCount, LoadedRayInfo frame)
+{
+    auto& sample_buf = meta_extras.sample_indices[frameIdx];
+    auto& final_depth_buf = meta_extras.final_depths[frameIdx];
+
+    sample_buf.resize(rayCount);
+    final_depth_buf.resize(rayCount);
+
+    sample_buf.copy_from_host(frame.sampleIdx, rayCount);
+    final_depth_buf.copy_from_host(frame.finalDepths, rayCount);
+    // Setup metadata buffers
+    nerf_data.metadata[frameIdx].sample_indices = sample_buf.data();
+    nerf_data.metadata[frameIdx].final_depths = final_depth_buf.data();
+    
+    tlog::info() << "Frame " << frameIdx << ": rays=" << rayCount 
+                    << " sample_indices=" << (void*)sample_buf.data() 
+                    << " final_depths=" << (void*)final_depth_buf.data();
+}
+
 void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const fs::path& data_path)
 {
     // TODO(custom-dataset-export): before calling this, generate per-ray dumps containing
@@ -361,7 +544,8 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     // batching knows the number of samples, and mark image_type = EImageDataType::Float, is_hdr=true.
 
 
-    std::vector<LoadedRayInfo> frameRayData;
+    // std::vector<LoadedRayInfo> frameRayData;
+    std::vector<TrainingDataSample> trainingDataSamples;
 
     //TODO: Consider switching to outputting as jsons instead
 
@@ -369,8 +553,9 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     //TODO: Extend this so it can take multiple files at once
     for(size_t i = 0; i < paths.size(); ++i)
     {
-        int added_frames = load_ray_data_from_file(frameRayData, paths[i]);
+        // int added_frames = load_ray_data_from_file(frameRayData, paths[i]);
 
+        int added_frames = load_training_data_from_file(trainingDataSamples, paths[i]);
 
         // TODO(extra-metadata-pack): if pixelIdx/sampleIdx/finalDepth (or other ray tags) are required at
         // train time, either extend the Ray struct to store them or upload parallel buffers and record
@@ -384,10 +569,30 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
 
     }
     
-    // Now loaded all the frame data, now time to send it to NerfDataset
-    int frameCount = frameRayData.size();
+    // // Now loaded all the frame data, now time to send it to NerfDataset
+    // int frameCount = frameRayData.size();
+    // // Create dataset with aabb_scale=1 and is_hdr=true
+    // nerf_data = create_empty_nerf_dataset(frameCount, 1, true);
+    
+    // // Override default scale/offset to ensure raw PBRT rays are not transformed
+    // // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
+    
+    // // Calculate scene bounding box to normalize rays
+    // vec3 min_bound = vec3(1e30f);
+    // vec3 max_bound = vec3(-1e30f);
+
+    // for (const auto &frame : frameRayData) {
+    //     for (int i = 0; i < frame.res.x; ++i) {
+    //         const auto &ray = frame.rays[i];
+    //         min_bound = min(min_bound, ray.o);
+    //         max_bound = max(max_bound, ray.o);
+    //     }
+    // }
+
+        // Now loaded all the frame data, now time to send it to NerfDataset
+    int trainingSampleCnt = trainingDataSamples.size();
     // Create dataset with aabb_scale=1 and is_hdr=true
-    nerf_data = create_empty_nerf_dataset(frameCount, 1, true);
+    nerf_data = create_empty_nerf_dataset(trainingSampleCnt, 1, true);
     
     // Override default scale/offset to ensure raw PBRT rays are not transformed
     // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
@@ -396,13 +601,14 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     vec3 min_bound = vec3(1e30f);
     vec3 max_bound = vec3(-1e30f);
 
-    for (const auto &frame : frameRayData) {
-        for (int i = 0; i < frame.res.x; ++i) {
-            const auto &ray = frame.rays[i];
+    for (const auto &trainingDataSample : trainingDataSamples) {
+        for (int i = 0; i < trainingDataSample.res.x; ++i) {
+            const auto &ray = trainingDataSample.rays[i];
             min_bound = min(min_bound, ray.o);
             max_bound = max(max_bound, ray.o);
         }
     }
+
 
     tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
                  << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
@@ -421,9 +627,9 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
                  << ", " << offset.y << ", " << offset.z << "]";
 
     // Apply normalization
-    for (auto &frame : frameRayData) {
-        for (int i = 0; i < frame.res.x; ++i) {
-            auto &ray = frame.rays[i];
+    for (auto &trainingDataSample : trainingDataSamples) {
+        for (int i = 0; i < trainingDataSample.res.x; ++i) {
+            auto &ray = trainingDataSample.rays[i];
             ray.o = ray.o * scale + offset;
         }
     }
@@ -431,27 +637,29 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     nerf_data.scale = scale;
     nerf_data.offset = offset;
     
-    nerf_data.n_extra_learnable_dims = 2;
+    // nerf_data.n_extra_learnable_dims = 2;
+    //TODO: Consider if I want to also add in the sample and depth index data, for now just set to 0
+    nerf_data.n_extra_learnable_dims = 0;
     nerf_data.has_rays = true;
-    meta_extras.sample_indices.resize(frameCount);
-    meta_extras.final_depths.resize(frameCount);
+    // meta_extras.sample_indices.resize(trainingSampleCnt);
+    // meta_extras.final_depths.resize(trainingSampleCnt);
     uint32_t frameIdx = 0;
-    for(auto& frame : frameRayData)
+    for(auto& trainingDataSample : trainingDataSamples)
     {
-        int rayCount = frame.res.x;
+        int rayCount = trainingDataSample.res.x;
 
         for(int rIdx = 0; rIdx < rayCount; ++rIdx)
         {
-            Ray& ray = frame.rays[rIdx];
+            Ray& ray = trainingDataSample.rays[rIdx];
             ray.d = normalize(ray.d);
             // nerf_data.nerf_ray_to_ngp(ray);
         }
 
-        // TODO(training-upload): wrap each chunk in result.set_training_image(...) to push radiance data
-        // plus rays into GPU memory and update metadata so the testbed can sample them.
+        //TODO(trainingDataUpload): Find a way to also upload the Transmission to a separate or same I-NGP network
+        //from trainingDataSample.T
         nerf_data.set_training_image(frameIdx, 
-            frame.res, 
-            frame.rgbas, 
+            trainingDataSample.res, 
+            trainingDataSample.L_physical, 
             nullptr, 
             1.0f, 
             false, 
@@ -461,32 +669,20 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
             false,
             false,
             0,            
-            frame.rays
+            trainingDataSample.rays
         );
 
 
-        auto& sample_buf = meta_extras.sample_indices[frameIdx];
-        auto& final_depth_buf = meta_extras.final_depths[frameIdx];
-
-        sample_buf.resize(rayCount);
-        final_depth_buf.resize(rayCount);
-
-        sample_buf.copy_from_host(frame.sampleIdx, rayCount);
-        final_depth_buf.copy_from_host(frame.finalDepths, rayCount);
-        // Setup metadata buffers
-        nerf_data.metadata[frameIdx].sample_indices = sample_buf.data();
-        nerf_data.metadata[frameIdx].final_depths = final_depth_buf.data();
         
-        tlog::info() << "Frame " << frameIdx << ": rays=" << rayCount 
-                     << " sample_indices=" << (void*)sample_buf.data() 
-                     << " final_depths=" << (void*)final_depth_buf.data();
+        // INFO: Add on extra metadata information
+        // load_metadata(nerf_data, meta_extras);
 
         //TODO: Check if there are any other fields that I need to set for the metadata
         nerf_data.metadata[frameIdx].image_data_type = EImageDataType::Float;
         nerf_data.xforms[frameIdx].start = mat4x3::identity();
         nerf_data.xforms[frameIdx].end = mat4x3::identity();
         nerf_data.metadata[frameIdx].lens = {};
-        nerf_data.metadata[frameIdx].resolution = frame.res;
+        nerf_data.metadata[frameIdx].resolution = trainingDataSample.res;
         nerf_data.metadata[frameIdx].principal_point = vec2(0.5f);
         nerf_data.metadata[frameIdx].focal_length = vec2(1000.f);
         nerf_data.metadata[frameIdx].rolling_shutter = vec4(0.f);
@@ -497,10 +693,13 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
         frameIdx++;
 
 #ifndef _DEBUG
-        delete[] frame.rays;
-        delete[] frame.sampleIdx;
-        delete[] frame.finalDepths;
-        delete[] frame.rgbas;
+        // delete[] frame.rays;
+        // delete[] frame.sampleIdx;
+        // delete[] frame.finalDepths;
+        // delete[] frame.rgbas;
+        delete[] trainingDataSample.rays;
+        delete[] trainingDataSample.L_physical;
+        delete[] trainingDataSample.T;
 #endif
     }
 
@@ -599,8 +798,6 @@ int main(int argc, char** argv)
     
     // Reset network to ensure it picks up the new dimensions
     testbed.reset_network();
-    
-
 
     // Initialize training state (gradients, optimizers, etc.)
     testbed.load_nerf_post();
@@ -611,7 +808,8 @@ int main(int argc, char** argv)
     testbed.m_train = true;
     testbed.m_training_batch_size = 1 << 18;
     testbed.m_training_data_available = true;
-    nerf_data.n_extra_learnable_dims = 2;
+    // nerf_data.n_extra_learnable_dims = 2;
+    nerf_data.n_extra_learnable_dims = 0;
 
     // Training loop
     uint64_t curr_frame = 0;
