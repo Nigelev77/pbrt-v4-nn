@@ -188,6 +188,7 @@ struct TrainingDataSample
     Ray *rays;
     vec4 *L_physical;
     vec4* T;
+    float *tMax;
 };
 
 inline vec4 extract_rgb_from_string(const char* buf)
@@ -211,19 +212,28 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
     // with an actual '\n' count (std::count expects a value, not a predicate lambda).
     std::ifstream f{native_string(path), std::ios::in | std::ios::out};
     if (!f.is_open()) throw std::runtime_error("Failed to open file");
+    
     //TODO: Find faster way to get line count, for now it is harcoded (i know how much it is)
-
     //auto count = std::count(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>(), '\n');
-    const int count = 21772800;
+    int count = 21772800;
     f.clear();
     f.seekg(0, std::ios::beg);
+
+
+    // Find header information about number of samples
+    std::string header;
+    std::getline(f, header);
+    auto samplesPos = header.find("samples=");
+    if(samplesPos != header.npos)
+    {
+        count = std::stoi(header.substr(samplesPos + 8));
+    }
 
     // Create buffers to hold results of parsing
     Ray *rays = new Ray[count];
     vec4 *L_physical = new vec4[count];
     vec4 *T = new vec4[count];
-
-
+    float *tMax = new float[count];
 
     // TODO(radiance-buffer): capture full RGB (or spectral) outputs per ray and pack them exactly
     // like Instant-NGP's pixel tensors instead of storing only a single luminance.
@@ -248,14 +258,15 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
         char betaBeforeBuf[64];
         char LAfterBuf[64];
         char TAfterBuf[64];
+        float tMaxVal;
         int sampleIdx;
-        // "rayo|rayd|beta_before|L_after|T_after|sampleIdx"
+        // "rayo|rayd|beta_before|L_after|T_after|tMax|sampleIdx"
 
         int read = std::sscanf(line.c_str(), 
             "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%d",
-            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &sampleIdx
+            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMax, &sampleIdx
         );
-        if(read < 5)
+        if(read < 6)
             throw std::runtime_error(std::string("Failed to parse line, only ") + std::to_string(read) + " items read");
 
         vec3 rayO = extract_vec_from_string(rayOBuf);
@@ -280,7 +291,8 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
         }
 
         T[ptr] = TAfter;
-        
+        tMax[ptr] = tMaxVal;
+
         rayCount++;
         ++ptr;
         if(currSampleIdx != sampleIdx || rayCount >= 4096)
@@ -288,15 +300,18 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
             Ray *ray_sample = new Ray[rayCount];
             vec4 *L_physical_sample = new vec4[rayCount];
             vec4 *T_sample = new vec4[rayCount];
+            float *tMax_sample = new float[rayCount];
 
             memcpy(ray_sample, rays, rayCount * sizeof(Ray));
             memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
             memcpy(T_sample, T, rayCount * sizeof(vec4));
+            memcpy(tMax_sample, tMax, rayCount * sizeof(float));
             TrainingDataSample sampleData;
             sampleData.res = {rayCount, 1};
             sampleData.rays = ray_sample;
             sampleData.L_physical = L_physical_sample;
             sampleData.T = T_sample;
+            sampleData.tMax = tMax_sample;
             trainingSampleData.push_back(sampleData);
             frameIdx++;
             currSampleIdx = sampleIdx;
@@ -314,6 +329,7 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
         Ray *ray_sample = new Ray[rayCount];
         vec4 *L_physical_sample = new vec4[rayCount];
         vec4 *T_sample = new vec4[rayCount];
+        float *tMax_sample = new float[rayCount];
 
         // memcpy(frameRay, rays, rayCount*sizeof(Ray));
         // memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
@@ -323,11 +339,13 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
         memcpy(ray_sample, rays, rayCount * sizeof(Ray));
         memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
         memcpy(T_sample, T, rayCount * sizeof(vec4));
+        memcpy(tMax_sample, tMax, rayCount * sizeof(float));
         TrainingDataSample sampleData;
         sampleData.res = {rayCount, 1};
         sampleData.rays = ray_sample;
         sampleData.L_physical = L_physical_sample;
         sampleData.T = T_sample;
+        sampleData.tMax;
         trainingSampleData.push_back(sampleData);
         frameIdx++;
         ptr = 0;
@@ -341,7 +359,7 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
     delete[] rays;
     delete[] L_physical;
     delete[] T;
-
+    delete[] tMax;
     return frameIdx;
 }
 
@@ -712,11 +730,7 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
 int main(int argc, char** argv)
 {
 
-
-
-    //TODO: Creating training data loader
     Testbed testbed;
-    //TODO: format data in a way that load_file will work
 
     //NOTE: We use Nerf mode because Volume refers to NanoVDB
     fs::path data_path;
@@ -744,7 +758,6 @@ int main(int argc, char** argv)
 
     MetadataExtras meta_extras{};
 
-    //TODO: Set training mode
     testbed.set_mode(ETestbedMode::Nerf);
 
     // Manually load config to ensure dir_encoding and rgb_network are present
@@ -793,7 +806,7 @@ int main(int argc, char** argv)
 
     testbed.reload_network_from_json(config);
 
-    //TODO: Load Nerf 
+
     load_nerfdataset(nerf_data, meta_extras, data_path);
     
     // Reset network to ensure it picks up the new dimensions

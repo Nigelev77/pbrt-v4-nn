@@ -250,6 +250,8 @@ namespace pbrt
         std::ofstream* outputRayDataFile = nullptr;
         std::ofstream* inputRayDataFile = nullptr;
 
+        int rayLogSampleCnt = 0;
+
         // Thread primitives
         std::vector<std::thread> rayLogThreads;
         std::queue<RayLogBatch>  rayLogWorkQueue;
@@ -257,6 +259,8 @@ namespace pbrt
         std::condition_variable  rayLogCondition;
         std::atomic<bool>        rayLogShutdown{false};
         std::mutex               rayLogFileMutex;
+        std::mutex               rayLogSampleCntMutex;
+
 
         void RayLogWorker();
     };

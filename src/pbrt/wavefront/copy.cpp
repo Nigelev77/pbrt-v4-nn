@@ -1,4 +1,5 @@
 #include <pbrt/wavefront/integrator.h>
+#include "config.h"
 
 #include <pbrt/media.h>
 
@@ -8,7 +9,7 @@
 #endif
 namespace pbrt
 {
-    constexpr uint64_t kMaxBytes = 4 * 1024ull * 1024ull * 1024ull;
+    constexpr uint64_t kMaxBytes = 8 * 1024ull * 1024ull * 1024ull;
     constexpr bool optimized_output = false;
     constexpr bool use_volume_training_data = true;
 
@@ -87,10 +88,11 @@ namespace pbrt
                     {
                         // TODO: Figure out if I want to use RGB or luminance values.
                         batchOutput += StringPrintf(
-                            "%s|%s|%s|%s|%s|%d\n",
+                            "%s|%s|%s|%s|%s|%f|%d\n",
                             trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
                             trainingSample.beta_before_rgb.ToString(),
                             trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString(),
+                            trainingSample.tMax,
                             batch.sampleIndex
                         );
                     }
@@ -115,7 +117,23 @@ namespace pbrt
                 {
                     outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
                     outputRayDataFile->flush();
+                    outputRayDataFile->close();
+
+                    rayLogSampleCnt += batch.trainingData.size();
+
+                    std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
+                    std::fstream headerStream(outputFilename, std::ios::in | std::ios::out);
+                    if (headerStream.is_open()) {
+                        char header[128];
+                        snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
+                            outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
+                        headerStream.write(header, strlen(header));
+                    }
+
+                    outputRayDataFile->open(outputFilename, std::ios::app);
                 }
+                
+
             }
         }
     }

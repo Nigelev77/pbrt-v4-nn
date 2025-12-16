@@ -341,17 +341,33 @@ namespace pbrt
         {
             outputToFile = true;
             inputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_INPUT_FILE, std::ios::app);
-            if(outputProperTargetLuminance)
+
+            std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
+            bool fileExists = false;
+
             {
-                outputRayDataFile =
-                    new std::ofstream(DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET, std::ios::app);
-
-            } else {
-                outputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_OUTPUT_FILE, std::ios::app);
-
+                std::ifstream inFile(outputFilename);
+                if (inFile.good()) {
+                    fileExists = true;
+                    std::string line;
+                    std::getline(inFile, line);
+                    size_t samplesPos = line.find("samples=");
+                    if (samplesPos != std::string::npos) {
+                        try {
+                            rayLogSampleCnt = std::stoi(line.substr(samplesPos + 8));
+                        } catch (...) {}
+                    }
+                }
             }
-            std::string version_header = outputProperTargetLuminance ? "version 1.1\n" : "version 1.0\n";
-            outputRayDataFile->write(version_header.c_str(), version_header.length());
+
+            outputRayDataFile = new std::ofstream(outputFilename, std::ios::app);
+
+            if (!fileExists) {
+                char header[128];
+                snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
+                    outputProperTargetLuminance ? "1.1" : "1.0", 0);
+                outputRayDataFile->write(header, strlen(header));
+            }
         }
 
     }
