@@ -46,6 +46,10 @@
 
 struct GLFWwindow;
 
+static constexpr uint32_t N_VOLUME_INPUT_DIMS = 7;
+static constexpr uint32_t N_VOLUME_OUTPUT_DIMS = 6;
+
+
 namespace tcnn {
 template <typename T> class Loss;
 template <typename T> class Optimizer;
@@ -1291,6 +1295,11 @@ public:
 
 	std::shared_ptr<NerfNetwork<network_precision_t>> m_nerf_network;
 
+
+	// PBRT data
+	GPUMemory<float> m_volume_training_inputs;
+	GPUMemory<float> m_volume_training_targets;
+	size_t m_n_volume_training_samples = 0;
 };
 
 } // namespace ngp

@@ -758,55 +758,101 @@ int main(int argc, char** argv)
 
     MetadataExtras meta_extras{};
 
+    //TODO: Change this to what is most appropriate
     testbed.set_mode(ETestbedMode::Nerf);
 
     // Manually load config to ensure dir_encoding and rgb_network are present
     // This prevents crash at reset_network() because default config lacks these fields
     // required for NeRF mode
-    nlohmann::json config = {
-        {"loss", {{"otype", "Huber"}}},
-        {"optimizer",
-         {{"otype", "Ema"},
-          {"decay", 0.95},
-          {"nested",
-           {{"otype", "ExponentialDecay"},
-            {"decay_start", 20000},
-            {"decay_interval", 10000},
-            {"decay_base", 0.33},
-            {"nested",
-             {{"otype", "Adam"},
-              {"learning_rate", 1e-2},
-              {"beta1", 0.9},
-              {"beta2", 0.99},
-              {"epsilon", 1e-15},
-              {"l2_reg", 1e-6}}}}}}},
-        {"encoding",
-         {{"otype", "HashGrid"},
-          {"n_levels", 8},
-          {"n_features_per_level", 4},
-          {"log2_hashmap_size", 19},
-          {"base_resolution", 16}}},
-        {"network",
-         {{"otype", "FullyFusedMLP"},
-          {"activation", "ReLU"},
-          {"output_activation", "None"},
-          {"n_neurons", 64},
-          {"n_hidden_layers", 1}}},
-        {"dir_encoding",
-         {{"otype", "Composite"},
-          {"nested",
-           {{{"n_dims_to_encode", 3}, {"otype", "SphericalHarmonics"}, {"degree", 4}},
-            {{"otype", "Identity"}}}}}},
-        {"rgb_network",
-         {{"otype", "FullyFusedMLP"},
-          {"activation", "ReLU"},
-          {"output_activation", "None"},
-          {"n_neurons", 64},
-          {"n_hidden_layers", 2}}}};
-
+    // nlohmann::json c = {
+    //     {"loss", {{"otype", "Huber"}}},
+    //     {"optimizer",
+    //      {{"otype", "Ema"},
+    //       {"decay", 0.95},
+    //       {"nested",
+    //        {{"otype", "ExponentialDecay"},
+    //         {"decay_start", 20000},
+    //         {"decay_interval", 10000},
+    //         {"decay_base", 0.33},
+    //         {"nested",
+    //          {{"otype", "Adam"},
+    //           {"learning_rate", 1e-2},
+    //           {"beta1", 0.9},
+    //           {"beta2", 0.99},
+    //           {"epsilon", 1e-15},
+    //           {"l2_reg", 1e-6}}}}}}},
+    //     {"encoding",
+    //      {{"otype", "HashGrid"},
+    //       {"n_levels", 8},
+    //       {"n_features_per_level", 4},
+    //       {"log2_hashmap_size", 19},
+    //       {"base_resolution", 16}}},
+    //     {"network",
+    //      {{"otype", "FullyFusedMLP"},
+    //       {"activation", "ReLU"},
+    //       {"output_activation", "None"},
+    //       {"n_neurons", 64},
+    //       {"n_hidden_layers", 1}}},
+    //     {"dir_encoding",
+    //      {{"otype", "Composite"},
+    //       {"nested",
+    //        {{{"n_dims_to_encode", 3}, {"otype", "SphericalHarmonics"}, {"degree", 4}},
+    //         {{"otype", "Identity"}}}}}},
+    //     {"rgb_network",
+    //      {{"otype", "FullyFusedMLP"},
+    //       {"activation", "ReLU"},
+    //       {"output_activation", "None"},
+    //       {"n_neurons", 64},
+    //       {"n_hidden_layers", 2}}}};
+    nlohmann::json config = 
+    {
+        {"encoding", {
+            {"otype", "Composite"},
+            {"nested", {
+                {
+                    {"n_dims_to_encode", 3},
+                    {"otype", "HashGrid"},
+                    {"n_levels", 16},
+                    {"n_features_per_level", 2},
+                    {"log2_hashmap_size", 19},
+                    {"base_resolution", 16},
+                    {"per_level_scale", 1.5}
+                },
+                {
+                    {"n_dims_to_encode", 3},
+                    {"otype", "SphericalHarmonics"},
+                    {"degree", 4 }
+                },
+                {
+                    {"n_dims_to_encode", 1},
+                    {"otype", "Frequency"}, 
+                    {"n_frequencies", 4}
+                }
+            }}
+        }},
+        {"network", {
+            {"otype", "FullyFusedMLP"},
+            {"activation", "ReLU"},
+            {"output_activation", "ReLU"}, 
+            {"n_neurons", 64},
+            {"n_hidden_layers", 2}
+        }},
+        {"loss", {
+            {"otype", "L2"}
+        }},
+        {"optimizer", {
+            {"otype", "Adam"},
+            {"learning_rate", 1e-2},
+            {"beta1", 0.9},
+            {"beta2", 0.99},
+            {"epsilon", 1e-8}
+        }}
+    };
+    
+    
     testbed.reload_network_from_json(config);
 
-
+    
     load_nerfdataset(nerf_data, meta_extras, data_path);
     
     // Reset network to ensure it picks up the new dimensions
