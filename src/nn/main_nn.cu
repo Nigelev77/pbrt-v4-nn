@@ -263,8 +263,8 @@ int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSample
         // "rayo|rayd|beta_before|L_after|T_after|tMax|sampleIdx"
 
         int read = std::sscanf(line.c_str(), 
-            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%d",
-            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMax, &sampleIdx
+            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%f|%d",
+            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMaxVal, &sampleIdx
         );
         if(read < 6)
             throw std::runtime_error(std::string("Failed to parse line, only ") + std::to_string(read) + " items read");
@@ -526,6 +526,101 @@ void load_metadata(NerfDataset& nerf_data, MetadataExtras& meta_extras, int fram
     tlog::info() << "Frame " << frameIdx << ": rays=" << rayCount 
                     << " sample_indices=" << (void*)sample_buf.data() 
                     << " final_depths=" << (void*)final_depth_buf.data();
+}
+
+void load_training_to_testbed(Testbed& testbed, const fs::path& path)
+{
+    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
+    if(!f.is_open())
+        throw std::runtime_error("Failed to open file");
+
+    testbed.m_n_volume_training_samples = 0;
+    f.clear();
+    f.seekg(0, std::ios::beg);
+
+
+    std::string header;
+    std::getline(f, header);
+    auto samplesPos = header.find("samples=");
+    if(samplesPos != header.npos)
+    {
+        testbed.m_n_volume_training_samples = std::stoi(header.substr(samplesPos + 8));
+    }
+
+
+    testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
+    testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
+
+    auto &input_cpu_buffer = testbed.m_volume_training_inputs_cpu;
+    auto &target_cpu_buffer = testbed.m_volume_training_targets_cpu;
+
+    int ptr = 0;
+    for (std::string line; std::getline(f, line);) {
+        char rayOBuf[64];
+        char rayDBuf[64];
+        char betaBeforeBuf[64];
+        char LAfterBuf[64];
+        char TAfterBuf[64];
+        float tMaxVal;
+        int sampleIdx;
+
+        int read = std::sscanf(line.c_str(), 
+            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%f|%d",
+            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMaxVal, &sampleIdx
+        );
+
+        if(read < 7)
+            throw std::runtime_error(std::string("Failed to parse line, only ") +
+                                     std::to_string(read) + " items read");
+
+        
+        vec3 rayO = extract_vec_from_string(rayOBuf);
+        vec3 rayD = extract_vec_from_string(rayDBuf);
+        vec4 betaBefore = extract_rgb_from_string(betaBeforeBuf);
+        vec4 LAfter = extract_rgb_from_string(LAfterBuf);
+        vec4 TAfter = extract_rgb_from_string(TAfterBuf);
+
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
+
+        constexpr float epsilon = 1e-6f;
+
+        for(int c = 0; c < 3; ++c)
+        {
+            if(betaBefore[c] > epsilon)
+            {
+                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = LAfter[c] / betaBefore[c];
+            }
+            else
+            {
+                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
+            }
+        }
+
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = TAfter.x;
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = TAfter.y;
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = TAfter.z;
+        
+        ++ptr;
+    }
+
+    const auto input_bytes_to_copy =
+        testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS;
+    const auto target_bytes_to_copy =
+        testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS;
+    auto &input_gpu_buffer = testbed.m_volume_training_inputs;
+    auto &target_gpu_buffer = testbed.m_volume_training_targets;
+
+    input_gpu_buffer.resize(input_bytes_to_copy);
+    target_gpu_buffer.resize(target_bytes_to_copy);
+
+    input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
+    target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
 }
 
 void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const fs::path& data_path)

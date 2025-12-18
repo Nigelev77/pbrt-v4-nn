@@ -47,7 +47,13 @@
 struct GLFWwindow;
 
 static constexpr uint32_t N_VOLUME_INPUT_DIMS = 7;
-static constexpr uint32_t N_VOLUME_OUTPUT_DIMS = 6;
+static constexpr uint32_t N_VOLUME_TARGET_DIMS = 6;
+static constexpr uint32_t POS_OFFSET = 0;
+static constexpr uint32_t DIR_OFFSET = 3;
+static constexpr uint32_t TMAX_OFFSET = 6;
+static constexpr uint32_t L_OFFSET = 0;
+static constexpr uint32_t T_OFFSET = 3;
+
 
 
 namespace tcnn {
@@ -1299,7 +1305,13 @@ public:
 	// PBRT data
 	GPUMemory<float> m_volume_training_inputs;
 	GPUMemory<float> m_volume_training_targets;
+
+	float* m_volume_training_inputs_cpu;
+	float* m_volume_training_targets_cpu;
+
 	size_t m_n_volume_training_samples = 0;
+
+
 };
 
 } // namespace ngp
