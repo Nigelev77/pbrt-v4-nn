@@ -544,7 +544,7 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     auto samplesPos = header.find("samples=");
     if(samplesPos != header.npos)
     {
-        testbed.m_n_volume_training_samples = std::stoi(header.substr(samplesPos + 8));
+        testbed.m_n_volume_training_samples = std::min(std::stoul(header.substr(samplesPos + 8)), (uint64_t)UINT32_MAX);
     }
 
 
@@ -553,6 +553,11 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
     auto &input_cpu_buffer = testbed.m_volume_training_inputs_cpu;
     auto &target_cpu_buffer = testbed.m_volume_training_targets_cpu;
+
+    vec3 min_bound = vec3(1e30f);
+    vec3 max_bound = vec3(-1e30f);
+    float minTMax = 1e30f;
+    float maxTMax = -1e30f;
 
     int ptr = 0;
     for (std::string line; std::getline(f, line);) {
@@ -579,6 +584,14 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         vec4 betaBefore = extract_rgb_from_string(betaBeforeBuf);
         vec4 LAfter = extract_rgb_from_string(LAfterBuf);
         vec4 TAfter = extract_rgb_from_string(TAfterBuf);
+
+        
+        // Calculate scene BB to normalize rays
+        min_bound = min(min_bound, rayO);
+        max_bound = max(max_bound, rayO);
+
+        minTMax = min(minTMax, tMaxVal);
+        maxTMax = max(maxTMax, tMaxVal);
 
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
@@ -609,6 +622,57 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         ++ptr;
     }
 
+    // Compute scale and offset to fit in [0, 1]
+    tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
+                 << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
+                 << max_bound.z << "]";
+
+    vec3 size = max_bound - min_bound;
+    float max_dim = std::max({size.x, size.y, size.z});
+
+    if(max_dim == 0)
+        max_dim = 1.0f;
+
+    float scale = 1.0f / max_dim;
+
+    vec3 centre = (max_bound - min_bound) * 0.5f;
+    vec3 offset = vec3(0.5f) - centre * scale;
+
+
+    tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
+                << ", " << offset.y << ", " << offset.z << "]";
+    
+    for(int i = 0; i < ptr; ++i)
+    {
+        auto index = i * N_VOLUME_INPUT_DIMS + POS_OFFSET;
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = input_cpu_buffer[index + dim];
+            input_cpu_buffer[index + dim] = val * scale + offset[dim];
+        }
+    }
+
+    testbed.m_volume_training_inputs_scale = scale;
+    testbed.m_volume_training_inputs_offset = offset;
+
+    // Compute tMax normalization
+    float tMax_range = maxTMax - minTMax;
+    if(tMax_range == 0.0f)
+    {
+        tMax_range = 1.0f;
+        tlog::error() << "tmax range is 0. This will result in NO normalization...";
+    }
+
+    float tMax_scale = 1.0f / tMax_range;
+    for (int i = 0; i < ptr; ++i) {
+        auto index = i * N_VOLUME_INPUT_DIMS + TMAX_OFFSET;
+        const float val = input_cpu_buffer[index];
+        input_cpu_buffer[index] = val * tMax_scale;
+    }
+    
+    testbed.m_volume_training_inputs_tMax_scale = tMax_scale;
+    
+    // Load into GPU buffers
     const auto input_bytes_to_copy =
         testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS;
     const auto target_bytes_to_copy =
@@ -981,3 +1045,4 @@ int main(int argc, char** argv)
 }
 
 #endif
+        

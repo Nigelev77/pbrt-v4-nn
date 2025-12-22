@@ -83,6 +83,47 @@ int do_system(const std::string& cmd) {
 
 std::atomic<size_t> g_total_n_bytes_allocated{0};
 
+__device__ uint32_t pcg_hash(uint32_t input)
+{
+	uint32_t state = input * 747796405u + 2891336453u;
+    uint32_t word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+    return (word >> 22u) ^ word;
+}
+
+__global__ gather_volume_training_batch_kernel(
+	const uint32_t n_samples_total,
+	const uint32_t batch_size,
+	const uint32_t n_input_dims, 
+	const uint32_t n_output_dims,
+	const float* __restrict__ all_inputs,
+	const float* __restrict__ all_outputs,
+	float* __restrict__ batch_inputs,
+	float* __restrict__ batch_outputs,
+	const uint32_t seed
+) 
+{
+	// Calculate thread index
+	uint32_t i = threadIdx.x + blockDim.x * blockIdx.x;
+	if(i >= batch_size) return;
+
+	// Get random index from full dataset
+	uint32_t hash = pcg_hash(i + seed * 782367U);
+	uint32_t randomIdx = hash % n_samples_total;
+	
+	// Copy over inputs of randomIdx to batch vector
+	for(uint32_t d = 0; d < n_input_dims; ++d)
+	{
+		batch_inputs[i * n_target_dims + d] = all_inputs[randomIdx * n_input_dims + d];
+	}
+
+	// Copy over outputs of randomIdx to batch vector
+	for(uint32_t d = 0; d < n_output_dims; ++d)
+	{
+		batch_outputs[i * n_output_dims + d] = all_outputs[randomIdx * n_output_dims + d];
+	}
+}
+
+
 json merge_parent_network_config(const json& child, const fs::path& child_path) {
 	if (!child.contains("parent")) {
 		return child;

@@ -1309,8 +1309,21 @@ public:
 	float* m_volume_training_inputs_cpu;
 	float* m_volume_training_targets_cpu;
 
-	size_t m_n_volume_training_samples = 0;
+	uint64_t m_n_volume_training_samples = 0;
 
+	//PBRT normalization data
+
+	//scale shared by all, otherwise would be shearing 
+	float m_volume_training_inputs_scale = 0.f;
+	vec3 m_volume_training_inputs_offset = vec3(0.f);
+
+	float m_volume_training_inputs_tMax_scale = 0.f;
+
+	// PBRT Batch data
+	GPUMemory<float> m_volume_batch_inputs;
+	GPUMemory<float> m_volume_batch_targets;
+
+	uint64_t m_n_volume_batch_size = 0;
 
 };
 

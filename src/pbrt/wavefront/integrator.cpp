@@ -354,7 +354,7 @@ namespace pbrt
                     size_t samplesPos = line.find("samples=");
                     if (samplesPos != std::string::npos) {
                         try {
-                            rayLogSampleCnt = std::stoi(line.substr(samplesPos + 8));
+                            rayLogSampleCnt = std::stoll(line.substr(samplesPos + 8));
                         } catch (...) {}
                     }
                 }

@@ -250,7 +250,7 @@ namespace pbrt
         std::ofstream* outputRayDataFile = nullptr;
         std::ofstream* inputRayDataFile = nullptr;
 
-        int rayLogSampleCnt = 0;
+        uint64_t rayLogSampleCnt = 0;
 
         // Thread primitives
         std::vector<std::thread> rayLogThreads;
