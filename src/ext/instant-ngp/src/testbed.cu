@@ -90,7 +90,7 @@ __device__ uint32_t pcg_hash(uint32_t input)
     return (word >> 22u) ^ word;
 }
 
-__global__ gather_volume_training_batch_kernel(
+__global__ void gather_volume_training_batch_kernel(
 	const uint32_t n_samples_total,
 	const uint32_t batch_size,
 	const uint32_t n_input_dims, 
@@ -113,7 +113,7 @@ __global__ gather_volume_training_batch_kernel(
 	// Copy over inputs of randomIdx to batch vector
 	for(uint32_t d = 0; d < n_input_dims; ++d)
 	{
-		batch_inputs[i * n_target_dims + d] = all_inputs[randomIdx * n_input_dims + d];
+		batch_inputs[i * n_input_dims + d] = all_inputs[randomIdx * n_input_dims + d];
 	}
 
 	// Copy over outputs of randomIdx to batch vector
@@ -4599,6 +4599,33 @@ bool Testbed::clear_tmp_dir() {
 	return success;
 }
 
+void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
+{
+	if(m_n_volume_training_samples == 0)
+	{
+            tlog::warning() << "No volume training data loaded!\n";
+            return;
+	}
+	
+	if(m_volume_batch_inputs.size() != batch_size * N_VOLUME_INPUT_DIMS)
+	{
+		m_volume_batch_inputs.resize(batch_size * N_VOLUME_INPUT_DIMS);
+		m_volume_batch_targets.resize(batch_size * N_VOLUME_TARGET_DIMS);
+	}
+
+	// Launch Gather Kernel
+	uint32_t n_threads = 256;
+	uint32_t n_blocks = div_round_up(batch_size, n_threads);
+
+	gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
+		(uint32_t)m_n_volume_training_samples, batch_size, N_VOLUME_INPUT_DIMS,
+		N_VOLUME_TARGET_DIMS, m_volume_training_inputs.data(),
+		m_volume_training_targets.data(), m_volume_batch_inputs.data(),
+		m_volume_batch_targets.data(), m_training_step);
+
+        return;
+}
+
 void Testbed::train(uint32_t batch_size) {
 	if (!m_training_data_available || m_camera_path.rendering) {
 		m_train = false;
@@ -4648,11 +4675,12 @@ void Testbed::train(uint32_t batch_size) {
 			case ETestbedMode::Sdf: training_prep_sdf(batch_size, m_stream.get()); break;
 			case ETestbedMode::Image: training_prep_image(batch_size, m_stream.get()); break;
 			case ETestbedMode::Volume: training_prep_volume(batch_size, m_stream.get()); break;
+			case ETestbedMode::PBRT: training_prep_pbrt(batch_size, m_stream.get()); break;
 			default: throw std::runtime_error{"Invalid training mode."};
 		}
 
 		CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
-	}
+	}		
 
 	// Find leaf optimizer and update its settings
 	json* leaf_optimizer_config = &m_network_config["optimizer"];
@@ -4665,6 +4693,8 @@ void Testbed::train(uint32_t batch_size) {
 
 	bool get_loss_scalar = m_training_step % 16 == 0;
 
+	//TODO: Look at the other train_xxx functions to see what else I need to do before I actually attempt to train
+	// I have already called the corresponding gather kernel in training_prep_pbrt call.
 	{
 		auto start = std::chrono::steady_clock::now();
 		ScopeGuard timing_guard{[&]() {
