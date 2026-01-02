@@ -102,6 +102,8 @@ __global__ void gather_volume_training_batch_kernel(
 	const uint32_t seed
 ) 
 {
+	//TODO: Consider different sampling strategies other than just a uniform distribution for improved convergence/training
+
 	// Calculate thread index
 	uint32_t i = threadIdx.x + blockDim.x * blockIdx.x;
 	if(i >= batch_size) return;
@@ -4626,6 +4628,31 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
         return;
 }
 
+void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaStream_t stream)
+{
+	// Check training samples not empty
+	if(m_n_volume_training_samples == 0)
+	{
+		tlog::warning("No training data loaded...");
+		return;
+	}
+
+	GPUMatrix<float> batch_input_matrix((float*)(m_volume_batch_inputs.data()), N_VOLUME_INPUT_DIMS, m_volume_batch_inputs.size());
+	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), N_VOLUME_TARGET_DIMS, m_volume_batch_targets.size());
+
+
+	auto ctx =
+		m_trainer->training_step(stream, batch_input_matrix, batch_target_matrix);
+
+
+	if(get_loss_scalar)
+	{
+		m_loss_scalar.update(m_trainer->loss(stream, *ctx));
+	}
+
+	m_training_step++;
+}
+
 void Testbed::train(uint32_t batch_size) {
 	if (!m_training_data_available || m_camera_path.rendering) {
 		m_train = false;
@@ -4706,6 +4733,7 @@ void Testbed::train(uint32_t batch_size) {
 			case ETestbedMode::Sdf: train_sdf(batch_size, get_loss_scalar, m_stream.get()); break;
 			case ETestbedMode::Image: train_image(batch_size, get_loss_scalar, m_stream.get()); break;
 			case ETestbedMode::Volume: train_volume(batch_size, get_loss_scalar, m_stream.get()); break;
+			case ETestbedMode::PBRT: train_pbrt(batch_size, get_loss_scalar, m_stream.get()); break;
 			default: throw std::runtime_error{"Invalid training mode."};
 		}
 

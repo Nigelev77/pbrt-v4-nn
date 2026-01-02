@@ -497,6 +497,8 @@ public:
 	void train_nerf_step(uint32_t target_batch_size, NerfCounters& counters, cudaStream_t stream);
 	void train_sdf(size_t target_batch_size, bool get_loss_scalar, cudaStream_t stream);
 	void train_image(size_t target_batch_size, bool get_loss_scalar, cudaStream_t stream);
+	void train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaStream_t stream);
+	
 	void set_train(bool mtrain);
 
 	template <typename T> void dump_parameters_as_images(const T* params, const std::string& filename_base);
