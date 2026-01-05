@@ -340,33 +340,39 @@ namespace pbrt
         if (shouldOutput)
         {
             outputToFile = true;
-            inputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_INPUT_FILE, std::ios::app);
+            inputRayDataFile = new std::ofstream(DEFAULT_PRIMITIVE_INPUT_FILE, std::ios::app | std::ios::binary);
 
             std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
             bool fileExists = false;
 
             {
-                std::ifstream inFile(outputFilename);
+                std::ifstream inFile(outputFilename, std::ios::in | std::ios::binary);
                 if (inFile.good()) {
                     fileExists = true;
-                    std::string line;
-                    std::getline(inFile, line);
-                    size_t samplesPos = line.find("samples=");
-                    if (samplesPos != std::string::npos) {
-                        try {
-                            rayLogSampleCnt = std::stoll(line.substr(samplesPos + 8));
-                        } catch (...) {}
-                    }
+                    // std::getline(inFile, line);
+                    // size_t samplesPos = line.find("samples=");
+                    // if (samplesPos != std::string::npos) {
+                    //     try {
+                    //         rayLogSampleCnt = std::stoll(line.substr(samplesPos + 8));
+                    //     } catch (...) {}
+                    // }
+                    inFile.seekg(std::ios::beg);
+                    inFile.read(reinterpret_cast<char*>(&rayLogSampleCnt), sizeof(uint64_t));
                 }
             }
 
-            outputRayDataFile = new std::ofstream(outputFilename, std::ios::app);
+            outputRayDataFile = new std::ofstream(outputFilename, std::ios::app | std::ios::binary );
 
             if (!fileExists) {
-                char header[128];
-                snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
-                    outputProperTargetLuminance ? "1.1" : "1.0", 0);
-                outputRayDataFile->write(header, strlen(header));
+                // char header[128];
+                // snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
+                //     outputProperTargetLuminance ? "1.1" : "1.0", 0);
+                // outputRayDataFile->write(header, strlen(header));
+
+
+                // First 8 bytes (64 bits) is reserved to detail how many samples are in the file.
+                rayLogSampleCnt = 0;
+                outputRayDataFile->write(reinterpret_cast<const char*>(&rayLogSampleCnt), sizeof(uint64_t));
             }
         }
 

@@ -59,8 +59,21 @@ namespace pbrt
                 }
             }
 
-            std::string batchOutput;
-            batchOutput.reserve(batch.trainingData.size() * 150);
+            // std::string batchOutput;
+            // batchOutput.reserve(batch.trainingData.size() * 150);
+
+            struct __attribute__((packed)) BinaryTrainingSample 
+            {
+                float o[3];
+                float d[3];
+                float beta_before_rgb[3];
+                float L_after_rgb[3];
+                float T_after[3];
+                float tMax;
+            };
+
+            std::vector<BinaryTrainingSample> binaryBatchOutput;
+            binaryBatchOutput.reserve(batch.trainingData.size());
 
             for(size_t i = 0; i < batch.trainingData.size(); ++i)
             {
@@ -76,61 +89,84 @@ namespace pbrt
 
                 // if(L_target.HasNaNs() || rgb.r == Infinity || rgb.g == Infinity || rgb.b == Infinity) continue;
 
-                
-                if(optimized_output)
-                {
-                    
-                }
-                else
-                {
+
+                if (optimized_output) {
+                } else {
                     // "rayo|rayd|beta_before|L_after|T_after"
                     if(use_volume_training_data)
                     {
                         // TODO: Figure out if I want to use RGB or luminance values.
-                        batchOutput += StringPrintf(
-                            "%s|%s|%s|%s|%s|%f|%d\n",
-                            trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
-                            trainingSample.beta_before_rgb.ToString(),
-                            trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString(),
-                            trainingSample.tMax,
-                            batch.sampleIndex
-                        );
-                    }
-                    else
-                    {
-                            
+                        // batchOutput += StringPrintf(
+                        //     "%s|%s|%s|%s|%s|%f|%d\n",
+                        //     trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
+                        //     trainingSample.beta_before_rgb.ToString(),
+                        //     trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString(),
+                        //     trainingSample.tMax,
+                        //     batch.sampleIndex
+                        // );
+                        auto &binaryOutput = binaryBatchOutput[i];
+                        binaryOutput.o[0] = trainingSample.rayo.x;
+                        binaryOutput.o[1] = trainingSample.rayo.y;
+                        binaryOutput.o[2] = trainingSample.rayo.z;
+
+                        binaryOutput.d[0] = trainingSample.rayd.x;
+                        binaryOutput.d[1] = trainingSample.rayd.y;
+                        binaryOutput.d[2] = trainingSample.rayd.z;
+
+                        binaryOutput.beta_before_rgb[0] = trainingSample.beta_before_rgb.r;
+                        binaryOutput.beta_before_rgb[1] = trainingSample.beta_before_rgb.g;
+                        binaryOutput.beta_before_rgb[2] = trainingSample.beta_before_rgb.b;
+
+                        binaryOutput.L_after_rgb[0] = trainingSample.L_after_rgb.r;
+                        binaryOutput.L_after_rgb[1] = trainingSample.L_after_rgb.g;
+                        binaryOutput.L_after_rgb[2] = trainingSample.L_after_rgb.b;
+
+                        binaryOutput.T_after[0] = trainingSample.T_after.r;
+                        binaryOutput.T_after[1] = trainingSample.T_after.g;
+                        binaryOutput.T_after[2] = trainingSample.T_after.b;
+
+                        binaryOutput.tMax = trainingSample.tMax;
+                    } else {
                         // batchOutput += StringPrintf(
                         //     "%s|%s|%d|%d|%d|%s|%s\n",
                         //     sample.ray.o.ToString(), sample.ray.d.ToString(), sample.pixelIdx, batch.sampleIndex,
                         //     L_target.ToString(), rgb.ToString()
                         // );
                     }
-
-
                 }
             }
 
-            if(!batchOutput.empty())
+            if(!binaryBatchOutput.empty())
             {
                 std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
                 if(outputRayDataFile)
                 {
-                    outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
+                    // outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
+                    outputRayDataFile->write(
+                        reinterpret_cast<const char *>(binaryBatchOutput.data()),
+                        binaryBatchOutput.size() * sizeof(BinaryTrainingSample));
+
+
                     outputRayDataFile->flush();
                     outputRayDataFile->close();
 
                     rayLogSampleCnt += batch.trainingData.size();
 
                     std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
-                    std::fstream headerStream(outputFilename, std::ios::in | std::ios::out);
+                    std::fstream headerStream(outputFilename, std::ios::in | std::ios::out | std::ios::binary);
                     if (headerStream.is_open()) {
-                        char header[128];
-                        snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
-                            outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
-                        headerStream.write(header, strlen(header));
+                        // char header[8];
+                        // snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
+                        //     outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
+                        // headerStream.write(header, strlen(header));
+                        headerStream.seekp(0);
+                        headerStream.write(
+                            reinterpret_cast<const char *>(&rayLogSampleCnt),
+                            sizeof(uint64_t)
+                        );
                     }
 
-                    outputRayDataFile->open(outputFilename, std::ios::app);
+                    outputRayDataFile->open(outputFilename, std::ios::app | std::ios::binary);
                 }
                 
 

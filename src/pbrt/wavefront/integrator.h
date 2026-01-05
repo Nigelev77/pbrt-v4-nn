@@ -75,6 +75,7 @@ namespace pbrt
             int sampleIndex;
         };
 
+
         ~WavefrontPathIntegrator();
 
         // WavefrontPathIntegrator Public Methods

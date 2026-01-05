@@ -528,9 +528,19 @@ void load_metadata(NerfDataset& nerf_data, MetadataExtras& meta_extras, int fram
                     << " final_depths=" << (void*)final_depth_buf.data();
 }
 
+struct __attribute__((packed)) BinaryTrainingSample 
+{
+    float o[3];
+    float d[3];
+    float beta_before_rgb[3];
+    float L_after_rgb[3];
+    float T_after[3];
+    float tMax;
+};
+
 void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 {
-    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
+    std::ifstream f{native_string(path), std::ios::in | std::ios::out | std::ios::binary };
     if(!f.is_open())
         throw std::runtime_error("Failed to open file");
 
@@ -539,18 +549,25 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     f.seekg(0, std::ios::beg);
 
 
-    std::string header;
-    std::getline(f, header);
-    auto samplesPos = header.find("samples=");
-    if(samplesPos != header.npos)
-    {
-        testbed.m_n_volume_training_samples = std::min(std::stoul(header.substr(samplesPos + 8)), (uint64_t)UINT32_MAX);
-    }
+    // std::string header;
+    // std::getline(f, header);
+    // auto samplesPos = header.find("samples=");
+    // if(samplesPos != header.npos)
+    // {
+    //     testbed.m_n_volume_training_samples = std::min(std::stoul(header.substr(samplesPos + 8)), (uint64_t)UINT32_MAX);
+    // }
+    uint64_t count = 0;
+    f.read(reinterpret_cast<char *>(&count), sizeof(uint64_t));
 
+    testbed.m_n_volume_training_samples = std::min(count, (uint64_t)UINT32_MAX);
 
     testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
     testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
 
+    if(count == 0)
+        return;
+
+    
     auto &input_cpu_buffer = testbed.m_volume_training_inputs_cpu;
     auto &target_cpu_buffer = testbed.m_volume_training_targets_cpu;
 
@@ -559,55 +576,41 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     float minTMax = 1e30f;
     float maxTMax = -1e30f;
 
+    std::vector<BinaryTrainingSample> binarySampleBuffer;
+    binarySampleBuffer.reserve(count);
+
+    f.read(reinterpret_cast<char *>(binarySampleBuffer.data()),
+           sizeof(BinaryTrainingSample) * count);
+
+        
+
     int ptr = 0;
-    for (std::string line; std::getline(f, line);) {
-        char rayOBuf[64];
-        char rayDBuf[64];
-        char betaBeforeBuf[64];
-        char LAfterBuf[64];
-        char TAfterBuf[64];
-        float tMaxVal;
-        int sampleIdx;
-
-        int read = std::sscanf(line.c_str(), 
-            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%f|%d",
-            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMaxVal, &sampleIdx
-        );
-
-        if(read < 7)
-            throw std::runtime_error(std::string("Failed to parse line, only ") +
-                                     std::to_string(read) + " items read");
-
-        
-        vec3 rayO = extract_vec_from_string(rayOBuf);
-        vec3 rayD = extract_vec_from_string(rayDBuf);
-        vec4 betaBefore = extract_rgb_from_string(betaBeforeBuf);
-        vec4 LAfter = extract_rgb_from_string(LAfterBuf);
-        vec4 TAfter = extract_rgb_from_string(TAfterBuf);
-
-        
+    for (const auto& bs : binarySampleBuffer) {
         // Calculate scene BB to normalize rays
+
+        vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
         min_bound = min(min_bound, rayO);
         max_bound = max(max_bound, rayO);
 
+        float tMaxVal = bs.tMax;
         minTMax = min(minTMax, tMaxVal);
         maxTMax = max(maxTMax, tMaxVal);
 
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = bs.d[0];
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = bs.d[1];
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = bs.d[2];
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
 
         constexpr float epsilon = 1e-6f;
 
         for(int c = 0; c < 3; ++c)
         {
-            if(betaBefore[c] > epsilon)
+            if(bs.beta_before_rgb[c] > epsilon)
             {
-                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = LAfter[c] / betaBefore[c];
+                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = bs.L_after_rgb[c] / bs.beta_before_rgb[c];
             }
             else
             {
@@ -615,12 +618,16 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
             }
         }
 
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = TAfter.x;
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = TAfter.y;
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = TAfter.z;
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = bs.T_after[0];
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = bs.T_after[1];
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = bs.T_after[2];
         
         ++ptr;
     }
+
+    tlog::success() << "Read " << count << " samples \n";
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+
 
     // Compute scale and offset to fit in [0, 1]
     tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
@@ -687,7 +694,7 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
 }
 
-void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const fs::path& data_path)
+void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& meta_extras, const fs::path& data_path)
 {
     // TODO(custom-dataset-export): before calling this, generate per-ray dumps containing
     // origin, direction, optional metadata, and supervised radiance. The instant-ngp loader
@@ -732,7 +739,7 @@ void load_nerfdataset(NerfDataset& nerf_data, MetadataExtras& meta_extras, const
     {
         // int added_frames = load_ray_data_from_file(frameRayData, paths[i]);
 
-        int added_frames = load_training_data_from_file(trainingDataSamples, paths[i]);
+        load_training_to_testbed(testbed, paths[i]);
 
         // TODO(extra-metadata-pack): if pixelIdx/sampleIdx/finalDepth (or other ray tags) are required at
         // train time, either extend the Ray struct to store them or upload parallel buffers and record
@@ -1012,7 +1019,7 @@ int main(int argc, char** argv)
     testbed.reload_network_from_json(config);
 
     
-    load_nerfdataset(nerf_data, meta_extras, data_path);
+    load_nerfdataset(testbed, nerf_data, meta_extras, data_path);
     
     // Reset network to ensure it picks up the new dimensions
     testbed.reset_network();
