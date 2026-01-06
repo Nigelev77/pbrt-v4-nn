@@ -330,6 +330,7 @@ public:
 	NetworkDims network_dims_sdf() const;
 	NetworkDims network_dims_image() const;
 	NetworkDims network_dims_nerf() const;
+	NetworkDims network_dims_pbrt() const;
 
 	NetworkDims network_dims() const;
 

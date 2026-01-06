@@ -577,7 +577,7 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     float maxTMax = -1e30f;
 
     std::vector<BinaryTrainingSample> binarySampleBuffer;
-    binarySampleBuffer.reserve(count);
+    binarySampleBuffer.resize(count);
 
     f.read(reinterpret_cast<char *>(binarySampleBuffer.data()),
            sizeof(BinaryTrainingSample) * count);
@@ -627,6 +627,8 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
     tlog::success() << "Read " << count << " samples \n";
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
 
 
     // Compute scale and offset to fit in [0, 1]
@@ -659,6 +661,7 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         }
     }
 
+
     testbed.m_volume_training_inputs_scale = scale;
     testbed.m_volume_training_inputs_offset = offset;
 
@@ -676,7 +679,10 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         const float val = input_cpu_buffer[index];
         input_cpu_buffer[index] = val * tMax_scale;
     }
-    
+
+    tlog::info() << "Auto-normalizing tmax: scale=" << tMax_scale << " with range=[ "
+         << minTMax << ", " << maxTMax << " ]\n";
+
     testbed.m_volume_training_inputs_tMax_scale = tMax_scale;
     
     // Load into GPU buffers
@@ -710,7 +716,7 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
             }
         }   
     }
-    else if(equals_case_insensitive(data_path.extension(), "txt"))
+    else if(equals_case_insensitive(data_path.extension(), "txt") || equals_case_insensitive(data_path.extension(), "bin"))
     {
         paths.emplace_back(data_path);
     }
@@ -729,7 +735,7 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
 
 
     // std::vector<LoadedRayInfo> frameRayData;
-    std::vector<TrainingDataSample> trainingDataSamples;
+    // std::vector<TrainingDataSample> trainingDataSamples;
 
     //TODO: Consider switching to outputting as jsons instead
 
@@ -752,12 +758,12 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
 
 
     }
-    
+    return;
     // // Now loaded all the frame data, now time to send it to NerfDataset
     // int frameCount = frameRayData.size();
     // // Create dataset with aabb_scale=1 and is_hdr=true
     // nerf_data = create_empty_nerf_dataset(frameCount, 1, true);
-    
+
     // // Override default scale/offset to ensure raw PBRT rays are not transformed
     // // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
     
@@ -774,118 +780,118 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
     // }
 
         // Now loaded all the frame data, now time to send it to NerfDataset
-    int trainingSampleCnt = trainingDataSamples.size();
-    // Create dataset with aabb_scale=1 and is_hdr=true
-    nerf_data = create_empty_nerf_dataset(trainingSampleCnt, 1, true);
+//     int trainingSampleCnt = trainingDataSamples.size();
+//     // Create dataset with aabb_scale=1 and is_hdr=true
+//     nerf_data = create_empty_nerf_dataset(trainingSampleCnt, 1, true);
     
-    // Override default scale/offset to ensure raw PBRT rays are not transformed
-    // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
+//     // Override default scale/offset to ensure raw PBRT rays are not transformed
+//     // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
     
-    // Calculate scene bounding box to normalize rays
-    vec3 min_bound = vec3(1e30f);
-    vec3 max_bound = vec3(-1e30f);
+//     // Calculate scene bounding box to normalize rays
+//     vec3 min_bound = vec3(1e30f);
+//     vec3 max_bound = vec3(-1e30f);
 
-    for (const auto &trainingDataSample : trainingDataSamples) {
-        for (int i = 0; i < trainingDataSample.res.x; ++i) {
-            const auto &ray = trainingDataSample.rays[i];
-            min_bound = min(min_bound, ray.o);
-            max_bound = max(max_bound, ray.o);
-        }
-    }
+//     for (const auto &trainingDataSample : trainingDataSamples) {
+//         for (int i = 0; i < trainingDataSample.res.x; ++i) {
+//             const auto &ray = trainingDataSample.rays[i];
+//             min_bound = min(min_bound, ray.o);
+//             max_bound = max(max_bound, ray.o);
+//         }
+//     }
 
 
-    tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
-                 << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
-                 << max_bound.z << "]";
+//     tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
+//                  << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
+//                  << max_bound.z << "]";
 
-    // Compute scale and offset to fit in [0.05, 0.95]
-    vec3 size = max_bound - min_bound;
-    float max_dim = std::max({size.x, size.y, size.z});
-    if (max_dim == 0)
-        max_dim = 1.0f;
-    float scale = 0.9f / max_dim;
-    vec3 center = (min_bound + max_bound) * 0.5f;
-    vec3 offset = vec3(0.5f) - center * scale;
+//     // Compute scale and offset to fit in [0.05, 0.95]
+//     vec3 size = max_bound - min_bound;
+//     float max_dim = std::max({size.x, size.y, size.z});
+//     if (max_dim == 0)
+//         max_dim = 1.0f;
+//     float scale = 0.9f / max_dim;
+//     vec3 center = (min_bound + max_bound) * 0.5f;
+//     vec3 offset = vec3(0.5f) - center * scale;
 
-    tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
-                 << ", " << offset.y << ", " << offset.z << "]";
+//     tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
+//                  << ", " << offset.y << ", " << offset.z << "]";
 
-    // Apply normalization
-    for (auto &trainingDataSample : trainingDataSamples) {
-        for (int i = 0; i < trainingDataSample.res.x; ++i) {
-            auto &ray = trainingDataSample.rays[i];
-            ray.o = ray.o * scale + offset;
-        }
-    }
+//     // Apply normalization
+//     for (auto &trainingDataSample : trainingDataSamples) {
+//         for (int i = 0; i < trainingDataSample.res.x; ++i) {
+//             auto &ray = trainingDataSample.rays[i];
+//             ray.o = ray.o * scale + offset;
+//         }
+//     }
 
-    nerf_data.scale = scale;
-    nerf_data.offset = offset;
+//     nerf_data.scale = scale;
+//     nerf_data.offset = offset;
     
-    // nerf_data.n_extra_learnable_dims = 2;
-    //TODO: Consider if I want to also add in the sample and depth index data, for now just set to 0
-    nerf_data.n_extra_learnable_dims = 0;
-    nerf_data.has_rays = true;
-    // meta_extras.sample_indices.resize(trainingSampleCnt);
-    // meta_extras.final_depths.resize(trainingSampleCnt);
-    uint32_t frameIdx = 0;
-    for(auto& trainingDataSample : trainingDataSamples)
-    {
-        int rayCount = trainingDataSample.res.x;
+//     // nerf_data.n_extra_learnable_dims = 2;
+//     //TODO: Consider if I want to also add in the sample and depth index data, for now just set to 0
+//     nerf_data.n_extra_learnable_dims = 0;
+//     nerf_data.has_rays = true;
+//     // meta_extras.sample_indices.resize(trainingSampleCnt);
+//     // meta_extras.final_depths.resize(trainingSampleCnt);
+//     uint32_t frameIdx = 0;
+//     for(auto& trainingDataSample : trainingDataSamples)
+//     {
+//         int rayCount = trainingDataSample.res.x;
 
-        for(int rIdx = 0; rIdx < rayCount; ++rIdx)
-        {
-            Ray& ray = trainingDataSample.rays[rIdx];
-            ray.d = normalize(ray.d);
-            // nerf_data.nerf_ray_to_ngp(ray);
-        }
+//         for(int rIdx = 0; rIdx < rayCount; ++rIdx)
+//         {
+//             Ray& ray = trainingDataSample.rays[rIdx];
+//             ray.d = normalize(ray.d);
+//             // nerf_data.nerf_ray_to_ngp(ray);
+//         }
 
-        //TODO(trainingDataUpload): Find a way to also upload the Transmission to a separate or same I-NGP network
-        //from trainingDataSample.T
-        nerf_data.set_training_image(frameIdx, 
-            trainingDataSample.res, 
-            trainingDataSample.L_physical, 
-            nullptr, 
-            1.0f, 
-            false, 
-            EImageDataType::Float, 
-            EDepthDataType::Float,
-            0.f,
-            false,
-            false,
-            0,            
-            trainingDataSample.rays
-        );
+//         //TODO(trainingDataUpload): Find a way to also upload the Transmission to a separate or same I-NGP network
+//         //from trainingDataSample.T
+//         nerf_data.set_training_image(frameIdx, 
+//             trainingDataSample.res, 
+//             trainingDataSample.L_physical, 
+//             nullptr, 
+//             1.0f, 
+//             false, 
+//             EImageDataType::Float, 
+//             EDepthDataType::Float,
+//             0.f,
+//             false,
+//             false,
+//             0,            
+//             trainingDataSample.rays
+//         );
 
 
         
-        // INFO: Add on extra metadata information
-        // load_metadata(nerf_data, meta_extras);
+//         // INFO: Add on extra metadata information
+//         // load_metadata(nerf_data, meta_extras);
 
-        //TODO: Check if there are any other fields that I need to set for the metadata
-        nerf_data.metadata[frameIdx].image_data_type = EImageDataType::Float;
-        nerf_data.xforms[frameIdx].start = mat4x3::identity();
-        nerf_data.xforms[frameIdx].end = mat4x3::identity();
-        nerf_data.metadata[frameIdx].lens = {};
-        nerf_data.metadata[frameIdx].resolution = trainingDataSample.res;
-        nerf_data.metadata[frameIdx].principal_point = vec2(0.5f);
-        nerf_data.metadata[frameIdx].focal_length = vec2(1000.f);
-        nerf_data.metadata[frameIdx].rolling_shutter = vec4(0.f);
-        nerf_data.metadata[frameIdx].light_dir = vec3(0.f);
+//         //TODO: Check if there are any other fields that I need to set for the metadata
+//         nerf_data.metadata[frameIdx].image_data_type = EImageDataType::Float;
+//         nerf_data.xforms[frameIdx].start = mat4x3::identity();
+//         nerf_data.xforms[frameIdx].end = mat4x3::identity();
+//         nerf_data.metadata[frameIdx].lens = {};
+//         nerf_data.metadata[frameIdx].resolution = trainingDataSample.res;
+//         nerf_data.metadata[frameIdx].principal_point = vec2(0.5f);
+//         nerf_data.metadata[frameIdx].focal_length = vec2(1000.f);
+//         nerf_data.metadata[frameIdx].rolling_shutter = vec4(0.f);
+//         nerf_data.metadata[frameIdx].light_dir = vec3(0.f);
         
-        nerf_data.update_metadata(frameIdx, frameIdx + 1);
+//         nerf_data.update_metadata(frameIdx, frameIdx + 1);
 
-        frameIdx++;
+//         frameIdx++;
 
-#ifndef _DEBUG
-        // delete[] frame.rays;
-        // delete[] frame.sampleIdx;
-        // delete[] frame.finalDepths;
-        // delete[] frame.rgbas;
-        delete[] trainingDataSample.rays;
-        delete[] trainingDataSample.L_physical;
-        delete[] trainingDataSample.T;
-#endif
-    }
+// #ifndef _DEBUG
+//         // delete[] frame.rays;
+//         // delete[] frame.sampleIdx;
+//         // delete[] frame.finalDepths;
+//         // delete[] frame.rgbas;
+//         delete[] trainingDataSample.rays;
+//         delete[] trainingDataSample.L_physical;
+//         delete[] trainingDataSample.T;
+// #endif
+//     }
 
     
 
@@ -896,9 +902,7 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
 int main(int argc, char** argv)
 {
 
-    Testbed testbed;
-
-    //NOTE: We use Nerf mode because Volume refers to NanoVDB
+    // Parse args first before any CUDA/GL init
     fs::path data_path;
     if (argc > 1) {
         data_path = argv[1];
@@ -907,6 +911,27 @@ int main(int argc, char** argv)
         tlog::error() << "Please provide a data path.";
         return 1;
     }
+
+    // Check DISPLAY is set for X11 forwarding
+    const char* display = std::getenv("DISPLAY");
+    if (!display || display[0] == '\0') {
+        tlog::warning() << "DISPLAY not set. GUI may not work over remote SSH.";
+        tlog::warning() << "Try: export DISPLAY=<your-local-ip>:0.0";
+    } else {
+        tlog::info() << "DISPLAY=" << display;
+    }
+
+    Testbed testbed;
+    
+    // Initialize window early to establish GL context before CUDA operations
+    tlog::info() << "Initializing window...";
+    testbed.init_window(1920, 1080);
+    tlog::info() << "Window initialized.";
+    
+    // Clear any CUDA errors that may have occurred during GL initialization
+    // (GL-CUDA interop can leave spurious errors)
+    cudaGetLastError();
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
 
     
 
@@ -924,8 +949,11 @@ int main(int argc, char** argv)
 
     MetadataExtras meta_extras{};
 
-    //TODO: Change this to what is most appropriate
-    testbed.set_mode(ETestbedMode::Nerf);
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+    tlog::info() << "Setting testbed mode...\n";
+    // TODO: Change this to what is most appropriate
+    testbed.set_mode(ETestbedMode::PBRT);
 
     // Manually load config to ensure dir_encoding and rgb_network are present
     // This prevents crash at reset_network() because default config lacks these fields
@@ -1015,20 +1043,32 @@ int main(int argc, char** argv)
         }}
     };
     
-    
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+    tlog::info() << "setting network json...\n";
     testbed.reload_network_from_json(config);
 
-    
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+    tlog::info() << "Loading dataset...\n";
     load_nerfdataset(testbed, nerf_data, meta_extras, data_path);
-    
+
+    testbed.update_imgui_paths();
+
     // Reset network to ensure it picks up the new dimensions
+    tlog::info() << "Resetting network...";
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
     testbed.reset_network();
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    tlog::info() << "Network reset complete.";
 
     // Initialize training state (gradients, optimizers, etc.)
+    tlog::info() << "Calling load_nerf_post...";
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
     testbed.load_nerf_post();
-    
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    CUDA_CHECK_THROW(cudaGetLastError());
+    tlog::info() << "load_nerf_post complete.";
 
     testbed.m_train = true;
     testbed.m_training_batch_size = 1 << 18;
@@ -1036,6 +1076,7 @@ int main(int argc, char** argv)
     // nerf_data.n_extra_learnable_dims = 2;
     nerf_data.n_extra_learnable_dims = 0;
 
+    // Window already initialized at startup
     // Training loop
     uint64_t curr_frame = 0;
     while (testbed.frame()) {

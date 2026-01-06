@@ -49,6 +49,7 @@ namespace pbrt
                     inputRayDataFile->seekp(0, std::ios::end);
                     outPos = outputRayDataFile->tellp();
                     inPos  = inputRayDataFile->tellp();
+                    LOG_VERBOSE("Failed to seek to end of file...\n");
                 }
     
                 // If either file is already >= 1 GiB, don't write anything.
@@ -73,7 +74,9 @@ namespace pbrt
             };
 
             std::vector<BinaryTrainingSample> binaryBatchOutput;
-            binaryBatchOutput.reserve(batch.trainingData.size());
+            binaryBatchOutput.resize(batch.trainingData.size());
+            LOG_VERBOSE("Allocating %d number of binary batch outputs\n",
+                        batch.trainingData.size());
 
             for(size_t i = 0; i < batch.trainingData.size(); ++i)
             {
@@ -135,12 +138,13 @@ namespace pbrt
                     }
                 }
             }
-
             if(!binaryBatchOutput.empty())
             {
+                LOG_VERBOSE("Binary batch output not empty, writing...\n");
                 std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
                 if(outputRayDataFile)
                 {
+                    LOG_VERBOSE("OutputRayDataFile not empty, writing...\n");
                     // outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
                     outputRayDataFile->write(
                         reinterpret_cast<const char *>(binaryBatchOutput.data()),

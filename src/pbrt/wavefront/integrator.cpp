@@ -359,6 +359,7 @@ namespace pbrt
                     inFile.seekg(std::ios::beg);
                     inFile.read(reinterpret_cast<char*>(&rayLogSampleCnt), sizeof(uint64_t));
                 }
+                inFile.close();
             }
 
             outputRayDataFile = new std::ofstream(outputFilename, std::ios::app | std::ios::binary );

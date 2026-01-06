@@ -1317,9 +1317,7 @@ void Testbed::imgui() {
 		}
 	}
 
-	if (!m_training_data_available) {
-		ImGui::EndDisabled();
-	}
+	ImGui::EndDisabled();
 
 
 	ImGuiTreeNodeFlags rendering_tree_node_flags = ImGuiTreeNodeFlags_DefaultOpen;
@@ -4190,12 +4188,22 @@ ELossType Testbed::string_to_loss_type(const std::string& str) {
 	}
 }
 
+Testbed::NetworkDims Testbed::network_dims_pbrt() const
+{
+	NetworkDims dims;
+	dims.n_input = N_VOLUME_INPUT_DIMS;
+	dims.n_output = N_VOLUME_TARGET_DIMS;
+	dims.n_pos = 3;
+	return dims;
+}
+
 Testbed::NetworkDims Testbed::network_dims() const {
 	switch (m_testbed_mode) {
 		case ETestbedMode::Nerf: return network_dims_nerf(); break;
 		case ETestbedMode::Sdf: return network_dims_sdf(); break;
 		case ETestbedMode::Image: return network_dims_image(); break;
 		case ETestbedMode::Volume: return network_dims_volume(); break;
+		case ETestbedMode::PBRT: return network_dims_pbrt(); break;
 		default: throw std::runtime_error{"Invalid mode."};
 	}
 }
@@ -4641,6 +4649,7 @@ void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), N_VOLUME_TARGET_DIMS, m_volume_batch_targets.size());
 
 
+	//TODO!: Check why this crashes
 	auto ctx =
 		m_trainer->training_step(stream, batch_input_matrix, batch_target_matrix);
 
