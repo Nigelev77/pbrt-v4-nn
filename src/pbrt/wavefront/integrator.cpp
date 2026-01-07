@@ -362,7 +362,7 @@ namespace pbrt
                 inFile.close();
             }
 
-            outputRayDataFile = new std::ofstream(outputFilename, std::ios::app | std::ios::binary );
+            outputRayDataFile = new std::ofstream(outputFilename, std::ios::in | std::ios::out | std::ios::binary | (fileExists ?  std::ios::ate : std::ios::trunc ));
 
             if (!fileExists) {
                 // char header[128];

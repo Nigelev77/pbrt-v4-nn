@@ -146,35 +146,38 @@ namespace pbrt
                 {
                     LOG_VERBOSE("OutputRayDataFile not empty, writing...\n");
                     // outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
+                    outputRayDataFile->seekp(0, std::ios::end);
                     outputRayDataFile->write(
                         reinterpret_cast<const char *>(binaryBatchOutput.data()),
                         binaryBatchOutput.size() * sizeof(BinaryTrainingSample));
 
-
-                    outputRayDataFile->flush();
-                    outputRayDataFile->close();
+                    // outputRayDataFile->flush();
+                    // outputRayDataFile->close();
 
                     rayLogSampleCnt += batch.trainingData.size();
 
-                    std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
-                    std::fstream headerStream(outputFilename, std::ios::in | std::ios::out | std::ios::binary);
-                    if (headerStream.is_open()) {
-                        // char header[8];
-                        // snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
-                        //     outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
-                        // headerStream.write(header, strlen(header));
-                        headerStream.seekp(0);
-                        headerStream.write(
-                            reinterpret_cast<const char *>(&rayLogSampleCnt),
-                            sizeof(uint64_t)
-                        );
-                    }
+                    // std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
+                    // std::fstream headerStream(outputFilename, std::ios::in | std::ios::out | std::ios::binary);
+                    // if (headerStream.is_open()) {
+                    //     // char header[8];
+                    //     // snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
+                    //     //     outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
+                    //     // headerStream.write(header, strlen(header));
+                    //     headerStream.seekp(0);
+                    //     headerStream.write(
+                    //         reinterpret_cast<const char *>(&rayLogSampleCnt),
+                    //         sizeof(uint64_t)
+                    //     );
+                    // }
 
-                    outputRayDataFile->open(outputFilename, std::ios::app | std::ios::binary);
+                    // outputRayDataFile->open(outputFilename, std::ios::app | std::ios::binary);
+
+                    outputRayDataFile->seekp(0, std::ios::beg);
+                    outputRayDataFile->write(reinterpret_cast<const char*>(&rayLogSampleCnt), sizeof(uint64_t));
+
+                    outputRayDataFile->flush();
                 }
-                
-
-            }
+                        }
         }
     }
 
