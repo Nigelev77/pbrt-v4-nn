@@ -1020,19 +1020,20 @@ int main(int argc, char** argv)
                 {
                     {"n_dims_to_encode", 1},
                     {"otype", "Frequency"}, 
-                    {"n_frequencies", 4}
+                    {"n_frequencies", 4} //TODO try having n_frequencies = 6
                 }
             }}
         }},
         {"network", {
             {"otype", "FullyFusedMLP"},
             {"activation", "ReLU"},
-            {"output_activation", "ReLU"}, 
-            {"n_neurons", 64},
-            {"n_hidden_layers", 2}
+            {"output_activation", "None"}, 
+            {"n_neurons", 64}, //TODO try having 128 neurons here
+            {"n_hidden_layers", 2} //TODO try having 3 hidden layers here
         }},
         {"loss", {
-            {"otype", "L2"}
+            {"otype", "SplitL2Loss"},
+            {"split_idx", 3}
         }},
         {"optimizer", {
             {"otype", "Adam"},

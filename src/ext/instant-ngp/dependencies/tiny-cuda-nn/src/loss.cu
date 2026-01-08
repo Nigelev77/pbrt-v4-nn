@@ -38,6 +38,7 @@
 #include <tiny-cuda-nn/losses/relative_l2_luminance.h>
 #include <tiny-cuda-nn/losses/cross_entropy.h>
 #include <tiny-cuda-nn/losses/variance_is.h>
+#include <tiny-cuda-nn/losses/split_l2.h>
 
 namespace tcnn {
 
@@ -63,6 +64,7 @@ auto register_builtin_losses() {
 	register_loss<T>(factories, "Smape", [](const json& loss) { return new SmapeLoss<T>{}; });
 	register_loss<T>(factories, "CrossEntropy", [](const json& loss) { return new CrossEntropyLoss<T>{}; });
 	register_loss<T>(factories, "Variance", [](const json& loss) { return new VarianceIsLoss<T>{}; });
+	register_loss<T>(factories, "SplitL2Loss", [](const json& loss) { return new SplitL2Loss<T>{loss.value("split_idx", 3u)}; });
 
 	return factories;
 }
