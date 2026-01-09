@@ -604,6 +604,8 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = bs.d[2];
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
 
+
+        //TODO: Check if i need to do some clamping here as well
         constexpr float epsilon = 1e-6f;
 
         for(int c = 0; c < 3; ++c)
@@ -618,9 +620,9 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
             }
         }
 
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = bs.T_after[0];
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = bs.T_after[1];
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = bs.T_after[2];
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, bs.T_after[0]));
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, bs.T_after[1]));
+        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, bs.T_after[2]));
         
         ++ptr;
     }

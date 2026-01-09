@@ -309,6 +309,8 @@ class RGBFilm : public FilmBase {
 
     PBRT_CPU_GPU void ResetPixel(Point2i p) { memset(&pixels[p], 0, sizeof(Pixel)); }
 
+    const RGBColorSpace *colorSpace;
+
   private:
     // RGBFilm::Pixel Definition
     struct Pixel {
@@ -319,7 +321,6 @@ class RGBFilm : public FilmBase {
     };
 
     // RGBFilm Private Members
-    const RGBColorSpace *colorSpace;
     Float maxComponentValue;
     bool writeFP16;
     Float filterIntegral;
