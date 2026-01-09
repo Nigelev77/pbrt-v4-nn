@@ -258,9 +258,14 @@ namespace pbrt
             SampledSpectrum L_target_added = L;
             SampledSpectrum T_target = (beta_before == SampledSpectrum(0.f)) ? SampledSpectrum(0.f) : (beta / beta_before);
 
+            
+            
             //TODO: add a field to convert to RGB as well
             if(rgbColorSpace)
             {
+                // RGB beta_rgb = beta.ToRGB(w.lambda, *rgbColorSpace);
+                // RGB beta_before_rgb = beta_before.ToRGB(w.lambda, *rgbColorSpace);
+
                 TrainingDataSample dataSample;
                 dataSample.pixelIdx = w.pixelIndex;
                 dataSample.rayo = p;
@@ -272,7 +277,7 @@ namespace pbrt
                 dataSample.beta_before = beta_before;
                 dataSample.beta_after = T_target;
                 dataSample.beta_before_rgb = beta_before.ToRGB(w.lambda, *rgbColorSpace);
-                dataSample.L_after_rgb = film.ToOutputRGB(L_target_added, w.lambda);
+                dataSample.L_after_rgb = L_target_added.ToRGB(w.lambda, *rgbColorSpace);
                 dataSample.T_after = T_target.ToRGB(w.lambda, *rgbColorSpace);
 
 #ifdef PBRT_IS_GPU_CODE
