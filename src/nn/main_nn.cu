@@ -619,12 +619,11 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
         //TODO: Check if i need to do some clamping here as well
         constexpr float epsilon = 1e-6f;
-
-        for(int c = 0; c < 3; ++c)
-        {
+        constexpr float MAX_RADIANCE = 100.f; //for now, just hard clamping this
+        for (int c = 0; c < 3; ++c) {
             if(bs.beta_before_rgb[c] > epsilon)
             {
-                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = bs.L_after_rgb[c] / bs.beta_before_rgb[c];
+                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = std::min(bs.L_after_rgb[c] / bs.beta_before_rgb[c], MAX_RADIANCE);
             }
             else
             {
@@ -1147,8 +1146,9 @@ int main(int argc, char** argv)
     // Window already initialized at startup
     // Training loop
     uint64_t curr_frame = 0;
+    constexpr uint64_t EPOCH_LOG_INTERVAL = 5000;
     while (testbed.frame()) {
-        if (!(curr_frame % 100000)) {
+        if (!(curr_frame % EPOCH_LOG_INTERVAL)) {
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
                          << " loss=" << testbed.m_loss_scalar.val();
