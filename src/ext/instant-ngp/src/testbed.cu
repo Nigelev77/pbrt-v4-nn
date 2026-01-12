@@ -4183,6 +4183,8 @@ ELossType Testbed::string_to_loss_type(const std::string& str) {
 		return ELossType::Huber;
 	} else if (equals_case_insensitive(str, "LogL1")) {
 		return ELossType::LogL1;
+	} else if (equals_case_insensitive(str, "SplitL2Loss")) {
+            return ELossType::SplitL2Loss;
 	} else {
 		throw std::runtime_error{"Unknown loss type."};
 	}
@@ -4645,11 +4647,18 @@ void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 		return;
 	}
 
-	GPUMatrix<float> batch_input_matrix((float*)(m_volume_batch_inputs.data()), N_VOLUME_INPUT_DIMS, m_volume_batch_inputs.size());
-	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), N_VOLUME_TARGET_DIMS, m_volume_batch_targets.size());
+	// Compute actual batch size from the batch buffer size
+	uint32_t batch_size = (uint32_t)(m_volume_batch_inputs.size() / N_VOLUME_INPUT_DIMS);
+	if(batch_size == 0)
+	{
+		tlog::warning("Batch size is 0, skipping training step...");
+		return;
+	}
+
+	GPUMatrix<float> batch_input_matrix((float*)(m_volume_batch_inputs.data()), N_VOLUME_INPUT_DIMS, batch_size);
+	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), N_VOLUME_TARGET_DIMS, batch_size);
 
 
-	//TODO!: Check why this crashes
 	auto ctx =
 		m_trainer->training_step(stream, batch_input_matrix, batch_target_matrix);
 

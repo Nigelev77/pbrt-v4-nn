@@ -61,6 +61,7 @@
 
 #include <neural-graphics-primitives/testbed.h>
 #include <neural-graphics-primitives/nerf_loader.h>
+#include <args/args.hxx>
 #include <tiny-cuda-nn/common.h>
 #include <memory>
 #include <iostream>
@@ -72,6 +73,7 @@
 #include <filesystem/directory.h>
 
 using namespace tcnn;
+using namespace args;
 using namespace ngp;
 
 // TODO(main-nn-mirror-plan):
@@ -599,9 +601,19 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = bs.d[0];
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = bs.d[1];
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = bs.d[2];
+        
+        // Normalize direction vector and transform from [-1,1] to [0,1] range
+        // SphericalHarmonics expects input in [0,1] and internally maps to [-1,1]
+        vec3 rayD = vec3(bs.d[0], bs.d[1], bs.d[2]);
+        float dirLen = std::sqrt(rayD.x * rayD.x + rayD.y * rayD.y + rayD.z * rayD.z);
+        if (dirLen > 1e-6f) {
+            rayD = rayD / dirLen;  // Normalize to unit length
+        }
+        // Map from [-1, 1] to [0, 1] for SphericalHarmonics encoding
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x * 0.5f + 0.5f;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y * 0.5f + 0.5f;
+        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z * 0.5f + 0.5f;
+        
         input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
 
 
@@ -903,7 +915,55 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
 
 int main(int argc, char** argv)
 {
+    std::vector<std::string> arguments;
+    try {
+        for (int i = 0; i < argc; ++i) {
+#ifdef _WIN32
+            arguments.emplace_back(ngp::utf16_to_utf8(argv[i]));
+#else
+            arguments.emplace_back(argv[i]);
+#endif
+        }
+    }   catch (const std::exception& e) {
+		tlog::error() << "Uncaught exception: " << e.what();
+		return 1;
+	}
 
+    // ArgumentParser parser{
+    //     "Instant Neural Graphics Primitives\n"
+    //     "Version " NGP_VERSION,
+    //     "",
+	// };
+
+    // Flag no_gui_flag{
+	// 	parser,
+	// 	"NO_GUI",
+	// 	"Disables the GUI and instead reports training progress on the command line.",
+	// 	{"no-gui"},
+	// };
+
+    	// Parse command line arguments and react to parsing
+	// errors using exceptions.
+	// try {
+	// 	if (arguments.empty()) {
+	// 		tlog::error() << "Number of arguments must be bigger than 0.";
+	// 		return -3;
+	// 	}
+
+	// 	parser.Prog(arguments.front());
+	// 	parser.ParseArgs(begin(arguments) + 1, end(arguments));
+	// } catch (const Help&) {
+	// 	std::cout << parser;
+	// 	return 0;
+	// } catch (const ParseError& e) {
+	// 	std::cerr << e.what() << std::endl;
+	// 	std::cerr << parser;
+	// 	return -1;
+	// } catch (const ValidationError& e) {
+	// 	std::cerr << e.what() << std::endl;
+	// 	std::cerr << parser;
+	// 	return -2;
+	// }
     // Parse args first before any CUDA/GL init
     fs::path data_path;
     if (argc > 1) {
@@ -926,9 +986,9 @@ int main(int argc, char** argv)
     Testbed testbed;
     
     // Initialize window early to establish GL context before CUDA operations
-    tlog::info() << "Initializing window...";
-    testbed.init_window(1920, 1080);
-    tlog::info() << "Window initialized.";
+    // tlog::info() << "Initializing window...";
+    // testbed.init_window(1920, 1080);
+    // tlog::info() << "Window initialized.";
     
     // Clear any CUDA errors that may have occurred during GL initialization
     // (GL-CUDA interop can leave spurious errors)
@@ -1051,6 +1111,11 @@ int main(int argc, char** argv)
 
     tlog::info() << "setting network json...\n";
     testbed.reload_network_from_json(config);
+
+    // Disable JIT fusion to avoid CUDA_ERROR_ILLEGAL_ADDRESS during cuModuleLoadDataEx
+    // This is a workaround for a potential driver/PTX compatibility issue
+    testbed.set_jit_fusion(false);
+    tlog::info() << "JIT fusion disabled.";
 
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
     CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
