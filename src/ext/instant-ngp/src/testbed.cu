@@ -4618,8 +4618,10 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
             tlog::warning() << "No volume training data loaded!\n";
             return;
 	}
-	
-	if(m_volume_batch_inputs.size() != batch_size * N_VOLUME_INPUT_DIMS)
+
+	uint64_t max_batch_size = std::min((uint64_t)batch_size, m_n_volume_training_samples);
+
+	if(m_volume_batch_inputs.size() != max_batch_size * N_VOLUME_INPUT_DIMS)
 	{
 		m_volume_batch_inputs.resize(batch_size * N_VOLUME_INPUT_DIMS);
 		m_volume_batch_targets.resize(batch_size * N_VOLUME_TARGET_DIMS);
@@ -4630,7 +4632,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 	uint32_t n_blocks = div_round_up(batch_size, n_threads);
 
 	gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
-		(uint32_t)m_n_volume_training_samples, batch_size, N_VOLUME_INPUT_DIMS,
+		(uint32_t)m_n_volume_training_samples, max_batch_size, N_VOLUME_INPUT_DIMS,
 		N_VOLUME_TARGET_DIMS, m_volume_training_inputs.data(),
 		m_volume_training_targets.data(), m_volume_batch_inputs.data(),
 		m_volume_batch_targets.data(), m_training_step);
@@ -4647,8 +4649,11 @@ void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 		return;
 	}
 
-	// Compute actual batch size from the batch buffer size
-	uint32_t batch_size = (uint32_t)(m_volume_batch_inputs.size() / N_VOLUME_INPUT_DIMS);
+	uint64_t max_input_size = std::min((uint64_t)target_batch_size, m_n_volume_training_samples);
+
+        // Compute actual batch size from the batch buffer size
+
+	uint64_t batch_size = (uint64_t)(max_input_size / N_VOLUME_INPUT_DIMS);
 	if(batch_size == 0)
 	{
 		tlog::warning("Batch size is 0, skipping training step...");
