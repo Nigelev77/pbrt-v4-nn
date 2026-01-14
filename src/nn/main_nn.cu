@@ -71,6 +71,7 @@
 #include <algorithm>
 #include <fstream>
 #include <filesystem/directory.h>
+#include <random>
 
 using namespace tcnn;
 using namespace args;
@@ -145,391 +146,6 @@ using namespace ngp;
 //
 //I recommend modifying main_nn.cu to normalize these values before uploading them.
 
-struct MetadataExtras
-{
-    std::vector<GPUMemory<float>> sample_indices;
-    std::vector<GPUMemory<float>> final_depths;
-};
-
-struct LoadedRayInfo {
-    ivec2 res = ivec2(0);
-    // EImageDataType image_type = EImageDataType::None;
-    // bool white_transparent = false;
-    // bool black_transparent = false;
-    // uint32_t mask_color = 0;
-    // void *pixels = nullptr;
-    // uint16_t *depth_pixels = nullptr;
-    Ray *rays = nullptr;
-    // int *pixelIdx = nullptr;
-    float *sampleIdx = nullptr;
-    float *finalDepths = nullptr;
-    // float *luminances = nullptr;
-    vec4 *rgbas = nullptr;
-    // float depth_scale = -1.f;
-};
-
-// batchOutput += StringPrintf(
-// "%s|%s|%s|%s|%s\n",
-// trainingSample.rayo.ToString(), trainingSample.rayd.ToString(),
-// trainingSample.beta_before_rgb.ToString(),
-// trainingSample.L_after_rgb.ToString(), trainingSample.T_after.ToString()
-// );
-// struct TrainingDataSample
-// {
-//     ivec2 res = ivec2(0);
-//     vec3 *p;
-//     vec3 *wo;
-//     vec4 *beta_before;
-//     vec4 *L_after;
-//     vec4 *T_after;
-// };
-
-struct TrainingDataSample
-{
-    ivec2 res = ivec2(0);
-    Ray *rays;
-    vec4 *L_physical;
-    vec4* T;
-    float *tMax;
-};
-
-inline vec4 extract_rgb_from_string(const char* buf)
-{
-    float r, g, b;
-    int read = std::sscanf(buf, "[%f %f %f", &r, &g, &b);
-    return vec4(r, g, b, 1.0);
-}
-
-
-inline vec3 extract_vec_from_string(const char* buf)
-{
-    float x, y, z;
-    int read = std::sscanf(buf, "[%f, %f, %f", &x, &y, &z);
-    return vec3(x, y, z); 
-}
-
-int load_training_data_from_file(std::vector<TrainingDataSample>& trainingSampleData, const fs::path& path)
-{
-    // TODO(parser-validation): handle unreadable files gracefully and replace this std::count usage
-    // with an actual '\n' count (std::count expects a value, not a predicate lambda).
-    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
-    if (!f.is_open()) throw std::runtime_error("Failed to open file");
-    
-    //TODO: Find faster way to get line count, for now it is harcoded (i know how much it is)
-    //auto count = std::count(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>(), '\n');
-    int count = 21772800;
-    f.clear();
-    f.seekg(0, std::ios::beg);
-
-
-    // Find header information about number of samples
-    std::string header;
-    std::getline(f, header);
-    auto samplesPos = header.find("samples=");
-    if(samplesPos != header.npos)
-    {
-        count = std::stoi(header.substr(samplesPos + 8));
-    }
-
-    // Create buffers to hold results of parsing
-    Ray *rays = new Ray[count];
-    vec4 *L_physical = new vec4[count];
-    vec4 *T = new vec4[count];
-    float *tMax = new float[count];
-
-    // TODO(radiance-buffer): capture full RGB (or spectral) outputs per ray and pack them exactly
-    // like Instant-NGP's pixel tensors instead of storing only a single luminance.
-    // TODO(rgba-layout): allocate a contiguous float buffer sized n_rays*4, write RGB into
-    // channels [0..2], set A=1 (or unused), and feed it to result.set_training_image so it mirrors
-    // LoadedImageInfo::pixels.
-
-    //we will set 1D array for the luminances/radiances. frames will be equal to sampleIdx i guess.
-    int currSampleIdx = 0;
-    int rayCount = 0;
-    int ptr = 0;
-    int frameIdx = 0;
-    int linesRead = 0;
-    for (std::string line; std::getline(f, line);)
-    {
-        if(line.find("version") != std::string::npos)
-            continue;
-        linesRead++;
-
-        char rayOBuf[64];
-        char rayDBuf[64];
-        char betaBeforeBuf[64];
-        char LAfterBuf[64];
-        char TAfterBuf[64];
-        float tMaxVal;
-        int sampleIdx;
-        // "rayo|rayd|beta_before|L_after|T_after|tMax|sampleIdx"
-
-        int read = std::sscanf(line.c_str(), 
-            "%[^]]]|%[^]]]|%[^]]]|%[^]]]|%[^]]]|%f|%d",
-            rayOBuf, rayDBuf, betaBeforeBuf, LAfterBuf, TAfterBuf, &tMaxVal, &sampleIdx
-        );
-        if(read < 6)
-            throw std::runtime_error(std::string("Failed to parse line, only ") + std::to_string(read) + " items read");
-
-        vec3 rayO = extract_vec_from_string(rayOBuf);
-        vec3 rayD = extract_vec_from_string(rayDBuf);
-        vec4 betaBefore = extract_rgb_from_string(betaBeforeBuf);
-        vec4 LAfter = extract_rgb_from_string(LAfterBuf);
-        vec4 TAfter = extract_rgb_from_string(TAfterBuf);
-
-        rays[ptr] = {rayO, rayD};
-        
-        const float epsilon = 1e-6f;
-        for(int c = 0; c < 3; ++c)
-        {
-            if(betaBefore[c] > epsilon)
-            {
-                L_physical[ptr][c] = LAfter[c] / betaBefore[c];
-            }
-            else
-            {
-                L_physical[ptr][c] = 0.f;
-            }
-        }
-
-        T[ptr] = TAfter;
-        tMax[ptr] = tMaxVal;
-
-        rayCount++;
-        ++ptr;
-        if(currSampleIdx != sampleIdx || rayCount >= 4096)
-        {
-            Ray *ray_sample = new Ray[rayCount];
-            vec4 *L_physical_sample = new vec4[rayCount];
-            vec4 *T_sample = new vec4[rayCount];
-            float *tMax_sample = new float[rayCount];
-
-            memcpy(ray_sample, rays, rayCount * sizeof(Ray));
-            memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
-            memcpy(T_sample, T, rayCount * sizeof(vec4));
-            memcpy(tMax_sample, tMax, rayCount * sizeof(float));
-            TrainingDataSample sampleData;
-            sampleData.res = {rayCount, 1};
-            sampleData.rays = ray_sample;
-            sampleData.L_physical = L_physical_sample;
-            sampleData.T = T_sample;
-            sampleData.tMax = tMax_sample;
-            trainingSampleData.push_back(sampleData);
-            frameIdx++;
-            currSampleIdx = sampleIdx;
-            ptr = 0;
-            rayCount = 0;
-        }
-        else
-        {
-            ++ptr;
-        }
-    }
-
-    // last samples were not considered:
-    {
-        Ray *ray_sample = new Ray[rayCount];
-        vec4 *L_physical_sample = new vec4[rayCount];
-        vec4 *T_sample = new vec4[rayCount];
-        float *tMax_sample = new float[rayCount];
-
-        // memcpy(frameRay, rays, rayCount*sizeof(Ray));
-        // memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
-        // memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
-        // memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
-
-        memcpy(ray_sample, rays, rayCount * sizeof(Ray));
-        memcpy(L_physical_sample, L_physical, rayCount * sizeof(vec4));
-        memcpy(T_sample, T, rayCount * sizeof(vec4));
-        memcpy(tMax_sample, tMax, rayCount * sizeof(float));
-        TrainingDataSample sampleData;
-        sampleData.res = {rayCount, 1};
-        sampleData.rays = ray_sample;
-        sampleData.L_physical = L_physical_sample;
-        sampleData.T = T_sample;
-        sampleData.tMax;
-        trainingSampleData.push_back(sampleData);
-        frameIdx++;
-        ptr = 0;
-        rayCount = 0;
-    }
-    
-    tlog::success() << "Loaded training sample of size: " << trainingSampleData.size() << "\n";        
-    tlog::success() << "Read " << linesRead << " training samples\n";
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-
-    delete[] rays;
-    delete[] L_physical;
-    delete[] T;
-    delete[] tMax;
-    return frameIdx;
-}
-
-int load_ray_data_from_file(std::vector<LoadedRayInfo>& frameRayData, const fs::path& path)
-{
-    // TODO(parser-validation): handle unreadable files gracefully and replace this std::count usage
-    // with an actual '\n' count (std::count expects a value, not a predicate lambda).
-    std::ifstream f{native_string(path), std::ios::in | std::ios::out};
-    if (!f.is_open()) throw std::runtime_error("Failed to open file");
-    //TODO: Find faster way to get line count, for now it is harcoded (i know how much it is)
-
-    //auto count = std::count(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>(), '\n');
-    const int count = 21772800;
-    f.clear();
-    f.seekg(0, std::ios::beg);
-
-    // Create buffers to hold results of parsing
-    Ray* rays = new Ray[count];
-    float* sampleIndices = new float[count];
-    float* finalDepths = new float[count];
-    vec4* rgbas = new vec4[count];
-
-
-
-    // TODO(radiance-buffer): capture full RGB (or spectral) outputs per ray and pack them exactly
-    // like Instant-NGP's pixel tensors instead of storing only a single luminance.
-    // TODO(rgba-layout): allocate a contiguous float buffer sized n_rays*4, write RGB into
-    // channels [0..2], set A=1 (or unused), and feed it to result.set_training_image so it mirrors
-    // LoadedImageInfo::pixels.
-
-    //we will set 1D array for the luminances/radiances. frames will be equal to sampleIdx i guess.
-    int currSampleIdx = 0;
-    int rayCount = 0;
-    int ptr = 0;
-    int frameIdx = 0;
-    int linesRead = 0;
-    for (std::string line; std::getline(f, line);)
-    {
-        linesRead++;
-        
-        char oBuf[64];
-        char dBuf[64];
-        int pixelIdx;
-        int sampleIdx;
-        int finalDepth;
-        char lumBuf[128];
-        char rgbBuf[64];
-
-        int read = std::sscanf(line.c_str(), 
-            "Pixel (o: %[^]]], d: %[^]]]) PixelIdx (%d) Sample (%d) FinalDepth (%d) Luminance (%[^]]]) RGB (%[^]]])",
-            oBuf, dBuf, &pixelIdx, &sampleIdx, &finalDepth, lumBuf, rgbBuf
-        );
-        if(read != 7)
-            throw std::runtime_error(std::string("Failed to parse line, only ") + std::to_string(read) + " items read");
-
-        vec3 o;
-        vec3 d;
-        vec4 rgba;
-        float ox, oy, oz;
-        float dx, dy, dz;
-        float r, g, b;
-        read = std::sscanf(oBuf, "[%f, %f, %f", &ox, &oy, &oz);
-        read = std::sscanf(dBuf, "[%f, %f, %f", &dx, &dy, &dz);
-        read = std::sscanf(rgbBuf, "[%f %f %f", &r, &g, &b);
-
-
-        o = vec3(ox, oy, oz);
-        d = vec3(dx, dy, dz);
-        rgba = vec4(r, g, b, 1.0);
-
-        rays[ptr] = {o, d};
-        sampleIndices[ptr] = (float)sampleIdx / 16.f;
-        finalDepths[ptr] = (float)finalDepth / 5.f;
-        rgbas[ptr] = rgba;
-        rayCount++;
-
-
-
-        if(currSampleIdx != sampleIdx)
-        {
-            Ray* frameRay = new Ray[rayCount];
-            float* frameSampleIndices = new float[rayCount];
-            float* frameFinalDepths = new float[rayCount];
-            vec4* frameRGBAs = new vec4[rayCount];
-
-            memcpy(frameRay, rays, rayCount*sizeof(Ray));
-            memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
-            memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
-            memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
-            ivec2 res{rayCount, 1};
-            LoadedRayInfo info;
-            info.res = res;
-            info.rays = frameRay;
-            info.sampleIdx = frameSampleIndices;
-            info.finalDepths = frameFinalDepths;
-            info.rgbas = frameRGBAs;
-            frameRayData.push_back(info);
-            frameIdx++;
-            currSampleIdx = sampleIdx;
-            ptr = 0;
-            rayCount = 0;
-        }
-        else
-        {
-            ++ptr;
-        }
-
-
-    }
-
-    // last samples were not considered:
-    {
-
-        Ray* frameRay = new Ray[rayCount];
-        float* frameSampleIndices = new float[rayCount];
-        float* frameFinalDepths = new float[rayCount];
-        vec4* frameRGBAs = new vec4[rayCount];
-        
-        memcpy(frameRay, rays, rayCount*sizeof(Ray));
-        memcpy(frameSampleIndices, sampleIndices, rayCount*sizeof(float));
-        memcpy(frameFinalDepths, finalDepths, rayCount*sizeof(float));
-        memcpy(frameRGBAs, rgbas, rayCount*sizeof(vec4));
-        ivec2 res{rayCount, 1};
-        LoadedRayInfo info;
-        info.res = res;
-        info.rays = frameRay;
-        info.sampleIdx = frameSampleIndices;
-        info.finalDepths = frameFinalDepths;
-        info.rgbas = frameRGBAs;
-        frameRayData.push_back(info);
-        frameIdx++;
-        // currSampleIdx = sampleIdx; // Removed as sampleIdx is out of scope and not needed here
-        ptr = 0;
-        rayCount = 0;
-    }
-    
-    tlog::success() << "Loaded " << frameRayData.size() << "\n";        
-    tlog::success() << "Read " << linesRead << "\n";
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-
-    delete[] rays;
-    delete[] sampleIndices;
-    delete[] finalDepths;
-    delete[] rgbas;
-
-    return frameIdx;
-}
-
-
-void load_metadata(NerfDataset& nerf_data, MetadataExtras& meta_extras, int frameIdx, int rayCount, LoadedRayInfo frame)
-{
-    auto& sample_buf = meta_extras.sample_indices[frameIdx];
-    auto& final_depth_buf = meta_extras.final_depths[frameIdx];
-
-    sample_buf.resize(rayCount);
-    final_depth_buf.resize(rayCount);
-
-    sample_buf.copy_from_host(frame.sampleIdx, rayCount);
-    final_depth_buf.copy_from_host(frame.finalDepths, rayCount);
-    // Setup metadata buffers
-    nerf_data.metadata[frameIdx].sample_indices = sample_buf.data();
-    nerf_data.metadata[frameIdx].final_depths = final_depth_buf.data();
-    
-    tlog::info() << "Frame " << frameIdx << ": rays=" << rayCount 
-                    << " sample_indices=" << (void*)sample_buf.data() 
-                    << " final_depths=" << (void*)final_depth_buf.data();
-}
-
 struct __attribute__((packed)) BinaryTrainingSample 
 {
     float o[3];
@@ -558,15 +174,36 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     // {
     //     testbed.m_n_volume_training_samples = std::min(std::stoul(header.substr(samplesPos + 8)), (uint64_t)UINT32_MAX);
     // }
-    uint64_t count = 0;
-    f.read(reinterpret_cast<char *>(&count), sizeof(uint64_t));
+    uint64_t totalCount = 0;
+    f.read(reinterpret_cast<char *>(&totalCount), sizeof(uint64_t));
 
-    testbed.m_n_volume_training_samples = std::min(count, (uint64_t)UINT32_MAX);
 
+
+    uint64_t trainCount = (uint64_t)(0.8f * totalCount);
+    uint64_t testAndValidationCount = totalCount - trainCount;
+    uint64_t testCount = (uint64_t)(0.5f * testAndValidationCount);
+    uint64_t validationCount = testAndValidationCount - testCount;
+
+    testbed.m_n_volume_training_samples = std::min(trainCount, (uint64_t)UINT32_MAX);
+    testbed.m_n_volume_validation_samples = std::min(validationCount, (uint64_t)UINT32_MAX);
+    testbed.m_n_volume_test_samples = std::min(testCount, (uint64_t)UINT32_MAX);
+    
+
+    //TODO: Add functionality to extend this to also copy over any samples already loaded if i want to load multiple files
+    // Currently just allocates new float buffer
     testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
     testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
 
-    if(count == 0)
+    testbed.m_volume_validation_inputs_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_INPUT_DIMS];
+    testbed.m_volume_validation_targets_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_TARGET_DIMS];
+
+    testbed.m_volume_test_inputs_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_INPUT_DIMS];
+    testbed.m_volume_test_targets_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_TARGET_DIMS];
+
+    const uint64_t trainEnd = trainCount;
+    const uint64_t validationEnd = trainCount + validationCount;
+
+    if(trainCount == 0)
         return;
 
     
@@ -579,66 +216,101 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     float maxTMax = -1e30f;
 
     std::vector<BinaryTrainingSample> binarySampleBuffer;
-    binarySampleBuffer.resize(count);
+    binarySampleBuffer.resize(totalCount);
 
     f.read(reinterpret_cast<char *>(binarySampleBuffer.data()),
-           sizeof(BinaryTrainingSample) * count);
+           sizeof(BinaryTrainingSample) * totalCount);
 
-        
-
-    int ptr = 0;
-    for (const auto& bs : binarySampleBuffer) {
-        // Calculate scene BB to normalize rays
-
-        vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
-        min_bound = min(min_bound, rayO);
-        max_bound = max(max_bound, rayO);
-
-        float tMaxVal = bs.tMax;
-        minTMax = min(minTMax, tMaxVal);
-        maxTMax = max(maxTMax, tMaxVal);
-
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
-        
-        // Normalize direction vector and transform from [-1,1] to [0,1] range
-        // SphericalHarmonics expects input in [0,1] and internally maps to [-1,1]
-        vec3 rayD = vec3(bs.d[0], bs.d[1], bs.d[2]);
-        float dirLen = std::sqrt(rayD.x * rayD.x + rayD.y * rayD.y + rayD.z * rayD.z);
-        if (dirLen > 1e-6f) {
-            rayD = rayD / dirLen;  // Normalize to unit length
-        }
-        // Map from [-1, 1] to [0, 1] for SphericalHarmonics encoding
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x * 0.5f + 0.5f;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y * 0.5f + 0.5f;
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z * 0.5f + 0.5f;
-        
-        input_cpu_buffer[ptr * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
+    // Shuffling sample buffer so its random distribution (the way its logged is correlated to how it samples pixels row by row)
+    // std::random_device rd;
+    // std::mt19937 g(rd());    
+    default_rng_t shuffle_rng{testbed.m_seed};
+    std::shuffle(binarySampleBuffer.begin(), binarySampleBuffer.end(), shuffle_rng);
 
 
-        //TODO: Check if i need to do some clamping here as well
-        constexpr float epsilon = 1e-6f;
-        constexpr float MAX_RADIANCE = 100.f; //for now, just hard clamping this
-        for (int c = 0; c < 3; ++c) {
-            if(bs.beta_before_rgb[c] > epsilon)
-            {
-                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = std::min(bs.L_after_rgb[c] / bs.beta_before_rgb[c], MAX_RADIANCE);
+    auto processSample = [](const BinaryTrainingSample& bs, 
+        float* input_buf, float* target_buf,
+        int idx, vec3& min_bound, vec3& max_bound, float& minTMax, float& maxTMax
+        )
+        {
+            // Calculate scene BB to normalize rays
+            vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
+            min_bound = min(min_bound, rayO);
+            max_bound = max(max_bound, rayO);
+
+            float tMaxVal = bs.tMax;
+            minTMax = min(minTMax, tMaxVal);
+            maxTMax = max(maxTMax, tMaxVal);
+
+            input_buf[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
+            input_buf[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
+            input_buf[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
+            
+            // Normalize direction vector and transform from [-1,1] to [0,1] range
+            // SphericalHarmonics expects input in [0,1] and internally maps to [-1,1]
+            vec3 rayD = vec3(bs.d[0], bs.d[1], bs.d[2]);
+            float dirLen = std::sqrt(rayD.x * rayD.x + rayD.y * rayD.y + rayD.z * rayD.z);
+            if (dirLen > 1e-6f) {
+                rayD = rayD / dirLen;  // Normalize to unit length
             }
-            else
-            {
-                target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
-            }
-        }
+            // Map from [-1, 1] to [0, 1] for SphericalHarmonics encoding
+            input_buf[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x * 0.5f + 0.5f;
+            input_buf[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y * 0.5f + 0.5f;
+            input_buf[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z * 0.5f + 0.5f;
+            
+            input_buf[idx * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
 
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, bs.T_after[0]));
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, bs.T_after[1]));
-        target_cpu_buffer[ptr * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, bs.T_after[2]));
-        
-        ++ptr;
+
+            //TODO: Check if i need to do some clamping here as well
+            constexpr float epsilon = 1e-6f;
+            constexpr float MAX_RADIANCE = 100.f; //for now, just hard clamping this
+            for (int c = 0; c < 3; ++c) {
+                if(bs.beta_before_rgb[c] > epsilon)
+                {
+                    target_buf[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = std::min(bs.L_after_rgb[c] / bs.beta_before_rgb[c], MAX_RADIANCE);
+                }
+                else
+                {
+                    target_buf[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
+                }
+            }
+
+            target_buf[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, bs.T_after[0]));
+            target_buf[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, bs.T_after[1]));
+            target_buf[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, bs.T_after[2]));
+            
+        };
+
+    for(uint64_t i = 0; i < trainEnd; ++i)
+    {
+        processSample(binarySampleBuffer[i], testbed.m_volume_training_inputs_cpu,
+            testbed.m_volume_training_targets_cpu, i, min_bound, max_bound, minTMax, maxTMax
+        );
     }
 
-    tlog::success() << "Read " << count << " samples \n";
+    vec3 dummy_min_bound = vec3(0.0);
+    vec3 dummy_max_bound = vec3(0.0);
+    float dummy_tmax = 0.f, dummy_tMin = 0.f;
+
+    for(uint64_t i = trainEnd; i < validationEnd; ++i)
+    {
+        uint64_t localIdx = i - trainEnd;
+        processSample(binarySampleBuffer[i], testbed.m_volume_validation_inputs_cpu,
+            testbed.m_volume_validation_targets_cpu, localIdx, dummy_min_bound, dummy_max_bound, dummy_tMin, dummy_tmax
+        );
+    }
+
+    for (uint64_t i = validationEnd; i < totalCount; ++i)
+    {
+        uint64_t localIdx = i - validationEnd;
+        processSample(binarySampleBuffer[i], testbed.m_volume_test_inputs_cpu, 
+            testbed.m_volume_test_targets_cpu, localIdx, dummy_min_bound, dummy_max_bound, dummy_tMin, dummy_tmax
+        );
+    }
+
+        tlog::success() << "Read " << totalCount << " samples \n";
+    tlog::success() << "Total Training, Validation and Test Count: [ " << trainCount
+                    << ", " << validationCount << ", " << testCount << " ]";
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
     CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
 
@@ -657,14 +329,19 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
     float scale = 1.0f / max_dim;
 
-    vec3 centre = (max_bound - min_bound) * 0.5f;
+    vec3 centre = (max_bound + min_bound) * 0.5f;
     vec3 offset = vec3(0.5f) - centre * scale;
 
 
     tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
                 << ", " << offset.y << ", " << offset.z << "]";
     
-    for(int i = 0; i < ptr; ++i)
+    auto &validation_input_cpu_buffer = testbed.m_volume_validation_inputs_cpu;
+    auto &validation_target_cpu_buffer = testbed.m_volume_validation_targets_cpu;
+    auto& test_input_cpu_buffer = testbed.m_volume_test_inputs_cpu;
+    auto& test_target_cpu_buffer = testbed.m_volume_test_targets_cpu;
+
+    for(int i = 0; i < trainCount; ++i)
     {
         auto index = i * N_VOLUME_INPUT_DIMS + POS_OFFSET;
         for(int dim = 0; dim < 3; ++dim)
@@ -674,6 +351,25 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
         }
     }
 
+
+    for (int i = 0; i < validationCount; ++i) {
+        auto index = i * N_VOLUME_INPUT_DIMS + POS_OFFSET;
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = validation_input_cpu_buffer[index + dim];
+            validation_input_cpu_buffer[index + dim] = val * scale + offset[dim];
+        }
+    }
+
+    for (int i = 0; i < testCount; ++i)
+    {
+        auto index = i * N_VOLUME_INPUT_DIMS + POS_OFFSET;
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = test_input_cpu_buffer[index + dim];
+            test_input_cpu_buffer[index + dim] = val * scale + offset[dim];
+        }
+    }
 
     testbed.m_volume_training_inputs_scale = scale;
     testbed.m_volume_training_inputs_offset = offset;
@@ -687,17 +383,31 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     }
 
     float tMax_scale = 1.0f / tMax_range;
-    for (int i = 0; i < ptr; ++i) {
+    for (int i = 0; i < trainCount; ++i) {
         auto index = i * N_VOLUME_INPUT_DIMS + TMAX_OFFSET;
         const float val = input_cpu_buffer[index];
-        input_cpu_buffer[index] = val * tMax_scale;
+        input_cpu_buffer[index] = (val - minTMax) * tMax_scale;
     }
+
+    for (int i = 0; i < validationCount; ++i) {
+        auto index = i * N_VOLUME_INPUT_DIMS + TMAX_OFFSET;
+        const float val = validation_input_cpu_buffer[index];
+        validation_input_cpu_buffer[index] = (val - minTMax) * tMax_scale;
+    }
+
+    for (int i = 0; i < testCount; ++i) {
+        auto index = i * N_VOLUME_INPUT_DIMS + TMAX_OFFSET;
+        const float val = test_input_cpu_buffer[index];
+        test_input_cpu_buffer[index] = (val - minTMax) * tMax_scale;
+    }
+
 
     tlog::info() << "Auto-normalizing tmax: scale=" << tMax_scale << " with range=[ "
          << minTMax << ", " << maxTMax << " ]\n";
 
     testbed.m_volume_training_inputs_tMax_scale = tMax_scale;
-    
+    testbed.m_volume_training_inputs_tMax_offset = minTMax;
+
     // Load into GPU buffers
     const auto input_bytes_to_copy =
         testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS;
@@ -711,9 +421,37 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
     input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
     target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
+
+
+    const auto validation_input_bytes_to_copy =
+        testbed.m_n_volume_validation_samples * N_VOLUME_INPUT_DIMS;
+    const auto validation_target_bytes_to_copy =
+        testbed.m_n_volume_validation_samples * N_VOLUME_TARGET_DIMS;
+    auto &validation_input_gpu_buffer = testbed.m_volume_validation_inputs;
+    auto &validation_target_gpu_buffer = testbed.m_volume_validation_targets;
+
+    validation_input_gpu_buffer.resize(validation_input_bytes_to_copy);
+    validation_target_gpu_buffer.resize(validation_target_bytes_to_copy);
+
+    validation_input_gpu_buffer.copy_from_host(validation_input_cpu_buffer, validation_input_bytes_to_copy);
+    validation_target_gpu_buffer.copy_from_host(validation_target_cpu_buffer, validation_target_bytes_to_copy);
+
+
+    const auto test_input_bytes_to_copy =
+        testbed.m_n_volume_test_samples * N_VOLUME_INPUT_DIMS;
+    const auto test_target_bytes_to_copy =
+        testbed.m_n_volume_test_samples * N_VOLUME_TARGET_DIMS;
+    auto &test_input_gpu_buffer = testbed.m_volume_test_inputs;
+    auto &test_target_gpu_buffer = testbed.m_volume_test_targets;
+
+    test_input_gpu_buffer.resize(test_input_bytes_to_copy);
+    test_target_gpu_buffer.resize(test_target_bytes_to_copy);
+
+    test_input_gpu_buffer.copy_from_host(test_input_cpu_buffer, test_input_bytes_to_copy);
+    test_target_gpu_buffer.copy_from_host(test_target_cpu_buffer, test_target_bytes_to_copy);
 }
 
-void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& meta_extras, const fs::path& data_path)
+void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
 {
     // TODO(custom-dataset-export): before calling this, generate per-ray dumps containing
     // origin, direction, optional metadata, and supervised radiance. The instant-ngp loader
@@ -751,9 +489,9 @@ void load_nerfdataset(Testbed& testbed, NerfDataset& nerf_data, MetadataExtras& 
     // std::vector<TrainingDataSample> trainingDataSamples;
 
     //TODO: Consider switching to outputting as jsons instead
-
-    nerf_data.has_rays = true;
-    //TODO: Extend this so it can take multiple files at once
+    testbed.m_nerf.training.dataset.has_rays = true;
+    // nerf_data.has_rays = true;
+    // TODO: Extend this so it can take multiple files at once
     for(size_t i = 0; i < paths.size(); ++i)
     {
         // int added_frames = load_ray_data_from_file(frameRayData, paths[i]);
@@ -1008,7 +746,7 @@ int main(int argc, char** argv)
     nerf_data.scale = 1.0;
     nerf_data.is_hdr = true;
 
-    MetadataExtras meta_extras{};
+
 
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
     CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
@@ -1119,7 +857,7 @@ int main(int argc, char** argv)
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
     CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
     tlog::info() << "Loading dataset...\n";
-    load_nerfdataset(testbed, nerf_data, meta_extras, data_path);
+    load_nerfdataset(testbed, data_path);
 
     testbed.update_imgui_paths();
 

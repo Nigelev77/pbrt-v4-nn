@@ -1,0 +1,79 @@
+[
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 16,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 20,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 19,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 21,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 16,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 32,
+        "SH_degree": 2,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 4,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 6,
+        "n_frequencies": 4
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 6
+    },
+    {
+        "n_levels": 12,
+        "log2_hashmap_size": 17,
+        "base_resolution": 8,
+        "SH_degree": 2,
+        "n_frequencies": 8
+    }
+]
