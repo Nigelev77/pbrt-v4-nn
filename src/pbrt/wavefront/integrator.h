@@ -78,6 +78,9 @@ namespace pbrt
 
         ~WavefrontPathIntegrator();
 
+        // Update camera for a new orientation render (reuses all other resources)
+        void UpdateCamera(BasicScene& scene);
+
         // WavefrontPathIntegrator Public Methods
         Float Render();
 

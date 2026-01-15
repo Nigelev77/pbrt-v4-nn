@@ -172,8 +172,7 @@ namespace pbrt
         //NOTE: Could use graphicsState.ctm?
         Transform originalCameraFromWorld = camera.cameraTransform.CameraFromWorld(graphicsState.transformStartTime);
         Transform originalWorldFromCamera = Inverse(originalCameraFromWorld);
-        //TODO: Loop to create many different cameras
-        RNG rng;
+        RNG rng(std::time(nullptr));
         if (renderOrientationCnt > 1)
         {
             cameras.reserve(renderOrientationCnt);
@@ -973,40 +972,14 @@ namespace pbrt
     void BasicScene::ResetOptions(SceneEntity filter, SceneEntity film, const std::vector<CameraSceneEntity>& cameras,
             SceneEntity sampler, SceneEntity integ, SceneEntity accel, int* currentCamera)
     {
-        //TODO: Check if anything else needs to be reconstructed
-        // Store information for specified integrator and accelerator
-        filmColorSpace = film.parameters.ColorSpace();
-        integrator = integ;
-        accelerator = accel;
-
-        // Immediately create filter and film
-        LOG_VERBOSE("Starting to create filter and film");
-        Allocator alloc = threadAllocators.Get();
-        Filter filt = Filter::Create(filter.name, filter.parameters, &filter.loc, alloc);
-
-        // It's a little ugly to poke into the camera's parameters here, but we
-        // have this circular dependency that Camera::Create() expects a
-        // Film, yet now the film needs to know the exposure time from
-        // the camera....
+        // Reset camera pointer so GetCamera() will wait for the new one
         camera = nullptr;
 
-        const CameraSceneEntity& camera = cameras[*currentCamera];
-        Float exposureTime = camera.parameters.GetOneFloat("shutterclose", 1.f) -
-            camera.parameters.GetOneFloat("shutteropen", 0.f);
-        if (exposureTime <= 0)
-            ErrorExit(&camera.loc,
-                "The specified camera shutter times imply that the shutter "
-                "does not open.  A black image will result.");
-
-        this->film = Film::Create(film.name, film.parameters, exposureTime,
-            camera.cameraTransform, filt, &film.loc, alloc);
-        LOG_VERBOSE("Finished creating filter and film");
-
         const int cameraIdx = *currentCamera;
-        // Enqueue asynchronous job to create camera
+        // Enqueue asynchronous job to create the new camera
         cameraJob = RunAsync([&cameras, cameraIdx, this]()
             {
-                LOG_VERBOSE("Starting to create cameras");
+                LOG_VERBOSE("Starting to create camera for orientation %d", cameraIdx);
                 Allocator alloc = threadAllocators.Get();
                 const CameraSceneEntity& camera = cameras[cameraIdx];
                 Medium cameraMedium = GetMedium(camera.medium, &camera.loc);
@@ -1136,6 +1109,10 @@ namespace pbrt
 
     std::map<std::string, Medium> BasicScene::CreateMedia()
     {
+        // Return cached media if already created
+        if (mediaCreated)
+            return cachedMedia;
+
         mediaMutex.lock();
         if (!mediumJobs.empty())
         {
@@ -1154,6 +1131,10 @@ namespace pbrt
             mediumJobs.clear();
         }
         mediaMutex.unlock();
+        
+        // Cache for reuse
+        mediaCreated = true;
+        cachedMedia = mediaMap;
         return mediaMap;
     }
 
@@ -1177,6 +1158,33 @@ namespace pbrt
                 return Allocator(resource);
             })
     {}
+
+    BasicScene::~BasicScene()
+    {
+        // In destructor, fully cleanup and delete the allocators
+        threadAllocators.ForAll([](Allocator& alloc) {
+            pstd::pmr::memory_resource* resource = alloc.resource();
+            if (resource && resource != pstd::pmr::get_default_resource()) {
+                auto* mbr = static_cast<pstd::pmr::monotonic_buffer_resource*>(resource);
+                delete mbr;
+            }
+        });
+    }
+
+    void BasicScene::CleanupAllocators()
+    {
+        // Release memory from the monotonic_buffer_resource objects but keep them alive
+        // This allows the allocators to be reused for subsequent renders
+        threadAllocators.ForAll([](Allocator& alloc) {
+            pstd::pmr::memory_resource* resource = alloc.resource();
+            if (resource && resource != pstd::pmr::get_default_resource()) {
+                // We know this is a monotonic_buffer_resource we created with new
+                auto* mbr = static_cast<pstd::pmr::monotonic_buffer_resource*>(resource);
+                // release() frees all memory back to upstream but keeps the object alive
+                mbr->release();
+            }
+        });
+    }
 
     void BasicScene::AddNamedMaterial(std::string name, SceneEntity material)
     {
@@ -1449,6 +1457,13 @@ namespace pbrt
         std::map<std::string, pbrt::Material>* namedMaterialsOut,
         std::vector<pbrt::Material>* materialsOut)
     {
+        // Return cached materials if already created
+        if (materialsCreated) {
+            *namedMaterialsOut = cachedNamedMaterials;
+            *materialsOut = cachedMaterials;
+            return;
+        }
+
         LOG_VERBOSE("Starting to consume %d normal map futures", normalMapJobs.size());
         std::lock_guard<std::mutex> lock(materialMutex);
         for (auto& job : normalMapJobs)
@@ -1514,10 +1529,19 @@ namespace pbrt
                 *namedMaterialsOut, &mtl.loc, alloc);
             materialsOut->push_back(m);
         }
+        
+        // Cache for reuse
+        materialsCreated = true;
+        cachedNamedMaterials = *namedMaterialsOut;
+        cachedMaterials = *materialsOut;
     }
 
     NamedTextures BasicScene::CreateTextures()
     {
+        // Return cached textures if already created
+        if (texturesCreated)
+            return cachedTextures;
+
         NamedTextures textures;
 
         if (nMissingTextures > 0)
@@ -1598,6 +1622,10 @@ namespace pbrt
         }
 
         LOG_VERBOSE("Done creating textures");
+        
+        // Cache for reuse
+        texturesCreated = true;
+        cachedTextures = textures;
         return textures;
     }
 
@@ -1605,6 +1633,12 @@ namespace pbrt
         const NamedTextures& textures,
         std::map<int, pstd::vector<Light>*>* shapeIndexToAreaLights)
     {
+        // Return cached lights if already created
+        if (lightsCreated) {
+            *shapeIndexToAreaLights = cachedShapeIndexToAreaLights;
+            return cachedLights;
+        }
+
         auto findMedium = [this](const std::string& s, const FileLoc* loc) -> Medium
             {
                 if (s.empty())
@@ -1710,6 +1744,11 @@ namespace pbrt
             lights.push_back(job->GetResult());
         LOG_VERBOSE("Finished consuming non-area light futures");
 
+        // Cache for reuse
+        lightsCreated = true;
+        cachedLights = lights;
+        cachedShapeIndexToAreaLights = *shapeIndexToAreaLights;
+        
         return lights;
     }
 

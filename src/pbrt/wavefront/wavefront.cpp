@@ -13,6 +13,95 @@
 namespace pbrt
 {
 
+    static void DoRender(WavefrontPathIntegrator* integrator)
+    {
+        Float seconds = integrator->Render();
+
+        LOG_VERBOSE("Total rendering time: %.3f s", seconds);
+
+        if (Options->printStatistics)
+        {
+#ifdef PBRT_BUILD_GPU_RENDERER
+            if (Options->useGPU)
+                ReportKernelStats();
+#endif  // PBRT_BUILD_GPU_RENDERER
+
+            Printf("Wavefront integrator statistics:\n");
+            Printf("%s\n", integrator->stats->Print());
+        }
+
+#ifdef PBRT_BUILD_GPU_RENDERER
+        if (Options->useGPU)
+        {
+            std::vector<GPULogItem> logs = ReadGPULogs();
+            for (const auto& item : logs)
+                Log(item.level, item.file, item.line, item.message);
+        }
+#endif  // PBRT_BUILD_GPU_RENDERER
+
+        ImageMetadata metadata;
+        integrator->camera.InitMetadata(&metadata);
+        metadata.renderTimeSeconds = seconds;
+        metadata.samplesPerPixel = integrator->sampler.SamplesPerPixel();
+        integrator->film.WriteImage(metadata);
+    }
+
+    void RenderWavefrontMultipleOrientations(BasicScene& scene, BasicSceneBuilder& builder)
+    {
+        WavefrontPathIntegrator* integrator = nullptr;
+
+#ifdef PBRT_BUILD_GPU_RENDERER
+        if (Options->useGPU)
+        {
+#ifdef PBRT_IS_WINDOWS
+            integrator =
+                new WavefrontPathIntegrator(&CUDATrackedMemoryResource::singleton, scene);
+#else
+            Allocator alloc(&CUDATrackedMemoryResource::singleton);
+            integrator = alloc.new_object<WavefrontPathIntegrator>(
+                &CUDATrackedMemoryResource::singleton, scene);
+#endif
+        }
+        else
+#endif  // PBRT_BUILD_GPU_RENDERER
+            integrator =
+            new WavefrontPathIntegrator(pstd::pmr::get_default_resource(), scene);
+
+        // Render all orientations, reusing the integrator
+        for (int i = builder.currentCamera; i < builder.renderOrientationCnt; ++i)
+        {
+            if (i > builder.currentCamera)
+            {
+                // Update scene for next camera orientation
+                builder.currentCamera = i;
+                builder.ResetScene();
+                // Update integrator with new camera
+                integrator->UpdateCamera(scene);
+            }
+            
+            DoRender(integrator);
+        }
+
+        // Cleanup integrator once at the end
+#ifdef PBRT_BUILD_GPU_RENDERER
+        if (Options->useGPU)
+        {
+#ifdef PBRT_IS_WINDOWS
+            delete integrator;
+#else
+            Allocator alloc(&CUDATrackedMemoryResource::singleton);
+            alloc.delete_object(integrator);
+#endif
+        } else
+#endif
+        {
+            delete integrator;
+        }
+        
+        if (!Options->displayServer.empty())
+            ClearDisplayDynamic();
+    }
+
     void RenderWavefront(BasicScene& scene)
     {
         WavefrontPathIntegrator* integrator = nullptr;

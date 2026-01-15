@@ -313,25 +313,23 @@ int main(int argc, char* argv[])
         BasicSceneBuilder builder(&scene);
         ParseFiles(&builder, filenames);
 
-
-        // if(options.numberOfOrientations > 1)
-        //     builder.renderOrientationCnt = options.numberOfOrientations;
-
         // Render the scene
-
-
-        for (int i = builder.currentCamera; i < builder.renderOrientationCnt; ++i)
+        if (Options->useGPU || Options->wavefront)
         {
-            if (Options->useGPU || Options->wavefront)
-                RenderWavefront(scene);
-            else
+            // Use optimized multi-orientation render that reuses GPU resources
+            RenderWavefrontMultipleOrientations(scene, builder);
+        }
+        else
+        {
+            // CPU rendering - render each orientation separately
+            for (int i = builder.currentCamera; i < builder.renderOrientationCnt; ++i)
             {
                 RenderCPU(scene);
+                
+                builder.currentCamera++;
+                if (builder.currentCamera < builder.renderOrientationCnt)
+                    builder.ResetScene();
             }
-
-            builder.currentCamera++;
-            if(builder.currentCamera < builder.renderOrientationCnt)
-                builder.ResetScene();
         }
 
         LOG_VERBOSE("Memory used after post-render cleanup: %s", GetCurrentRSS());

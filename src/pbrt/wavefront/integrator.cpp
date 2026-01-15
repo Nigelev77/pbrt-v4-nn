@@ -379,26 +379,58 @@ namespace pbrt
 
     }
 
+    void WavefrontPathIntegrator::UpdateCamera(BasicScene& scene)
+    {
+        // Stop display thread before updating camera - it will be restarted in Render()
+        // StopDisplayThread() also calls ClearDisplayDynamic() before freeing buffers
+        StopDisplayThread();
+        
+        // Get the new camera from the scene (which should have been updated via ResetScene)
+        camera = scene.GetCamera();
+        // Film stays the same, just update the film reference from the new camera
+        film = camera.GetFilm();
+        filter = film.GetFilter();
+        // Sampler can stay the same
+        
+        // Reset all film pixels for the new render
+        Bounds2i pixelBounds = film.PixelBounds();
+        Vector2i resolution = pixelBounds.Diagonal();
+        ParallelFor(
+            "Reset pixels for new orientation", resolution.x * resolution.y,
+            PBRT_CPU_GPU_LAMBDA(int i) {
+            int x = i % resolution.x, y = i / resolution.x;
+            film.ResetPixel(pixelBounds.pMin + Vector2i(x, y));
+        });
+        
+        // Display will be restarted by StartDisplayThread() in Render()
+    }
+
 
     WavefrontPathIntegrator::~WavefrontPathIntegrator()
     {
+        Printf("WavefrontPathIntegrator destructor: Output should now contain %d number of samples\n", rayLogSampleCnt);
+        LOG_VERBOSE("Output should now contain %d number of samples", rayLogSampleCnt);
+        
+        // Signal ray log threads to shutdown
         {
             std::lock_guard<std::mutex> lock(rayLogMutex);
             rayLogShutdown = true;
         }
-
         rayLogCondition.notify_all();
 
-
-        // Join Threads
+        // Join ray log threads and wait for them to finish
+        Printf("Waiting for %d ray log threads to finish...\n", (int)rayLogThreads.size());
         for(auto& t : rayLogThreads)
         {
             if(t.joinable()) t.join();
         }
+        Printf("Ray log threads finished.\n");
 
         if (outputRayDataFile && outputRayDataFile->is_open())
         {
+            outputRayDataFile->flush();
             outputRayDataFile->close();
+            Printf("Output ray data file closed.\n");
         }
 
         if (inputRayDataFile && inputRayDataFile->is_open())
@@ -446,10 +478,11 @@ namespace pbrt
 
         if (stats) alloc.delete_object(stats);
 
-        
+#ifdef PBRT_BUILD_GPU_RENDERER
         // CUDA_CHECK(cudaFree(pendingSamples));
         if(pendingRayData) CUDA_CHECK(cudaFree(pendingRayData));
         if(pendingSamplesCnt) CUDA_CHECK(cudaFree(pendingSamplesCnt));
+#endif
 
         pixelSampleState.Free(alloc);
         inputRayData.Free(alloc);
@@ -1065,14 +1098,31 @@ namespace pbrt
 #ifdef PBRT_BUILD_GPU_RENDERER
         if (Options->useGPU)
         {
+            // Clear display callbacks FIRST, before freeing buffers they reference
+            if (!Options->displayServer.empty())
+                ClearDisplayDynamic();
+            
             // Wait until rendering is all done before we start to shut down the
             // display stuff..
-            if (!Options->displayServer.empty() && copyThread)
+            if (copyThread)
             {
                 *exitCopyThread = true;
                 copyThread->join();
                 delete copyThread;
                 copyThread = nullptr;
+                
+                // Reset exit flag for potential restart
+                *exitCopyThread = false;
+            }
+
+            // Free display buffers so they can be reallocated on next render
+            if (displayRGB) {
+                cudaFree(displayRGB);
+                displayRGB = nullptr;
+            }
+            if (displayRGBHost) {
+                delete[] displayRGBHost;
+                displayRGBHost = nullptr;
             }
 
             // Another synchronization to make sure no kernels are running on the

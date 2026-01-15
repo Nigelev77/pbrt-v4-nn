@@ -48,9 +48,9 @@ void CUDATrackedMemoryResource::do_deallocate(void *p, size_t size, size_t align
         return;
 
     if(allocations.find(p) == allocations.end()) return;
-
+    
     CUDA_CHECK(cudaFree(p));
-
+    
     std::lock_guard<std::mutex> lock(mutex);
     auto iter = allocations.find(p);
     DCHECK(iter != allocations.end());
@@ -70,7 +70,7 @@ void CUDATrackedMemoryResource::Free()
     // }
 
     // allocations.clear();
-
+    
     auto bytesAllocd = bytesAllocated.load();
     auto allocs = allocations.size();
     LOG_VERBOSE("Currently still %d bytes allocated from %d allocations", bytesAllocd, allocs);

@@ -1,0 +1,11 @@
+[
+    {
+        "lossType": "L2"
+    },
+    {
+        "lossType": "L1"
+    },
+    {
+        "lossType": "RelativeL2"
+    }
+]

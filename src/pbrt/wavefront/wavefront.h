@@ -13,6 +13,9 @@ namespace pbrt {
 
 void RenderWavefront(BasicScene &);
 
+// Render multiple orientations, reusing integrator resources
+void RenderWavefrontMultipleOrientations(BasicScene& scene, BasicSceneBuilder& builder);
+
 }
 
 #endif  // PBRT_WAVEFRONT_WAVEFRONT_H

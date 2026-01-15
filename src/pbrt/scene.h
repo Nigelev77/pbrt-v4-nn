@@ -303,6 +303,10 @@ namespace pbrt
     public:
         // BasicScene Public Methods
         BasicScene();
+        ~BasicScene();
+
+        // Cleanup GPU resources between renders
+        void CleanupAllocators();
 
         void SetOptions(SceneEntity filter, SceneEntity film, CameraSceneEntity camera,
             SceneEntity sampler, SceneEntity integrator, SceneEntity accelerator);
@@ -429,6 +433,18 @@ namespace pbrt
         std::map<std::string, AsyncJob<SpectrumTexture>*> spectrumTextureJobs;
         int nMissingTextures = 0;
 
+        // Cached results from Create* methods for reuse across multiple renders
+        bool texturesCreated = false;
+        NamedTextures cachedTextures;
+        bool mediaCreated = false;
+        std::map<std::string, Medium> cachedMedia;
+        bool materialsCreated = false;
+        std::map<std::string, Material> cachedNamedMaterials;
+        std::vector<Material> cachedMaterials;
+        bool lightsCreated = false;
+        std::vector<Light> cachedLights;
+        std::map<int, pstd::vector<Light>*> cachedShapeIndexToAreaLights;
+
         std::mutex shapeMutex, animatedShapeMutex;
         std::mutex instanceDefinitionMutex, instanceUseMutex;
     };
@@ -493,7 +509,7 @@ namespace pbrt
         std::string ToString() const;
 
         int renderOrientationCnt = NUMBER_OF_ORIENTATIONS;
-        int currentCamera = 0;
+        int currentCamera = 1;
     private:
         // BasicSceneBuilder::GraphicsState Definition
         struct GraphicsState
