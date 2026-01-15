@@ -219,6 +219,9 @@ class FilmBase {
     PBRT_CPU_GPU
     const PixelSensor *GetPixelSensor() const { return sensor; }
     std::string GetFilename() const { return filename; }
+    
+    // Increment the filename index for multi-orientation renders
+    void IncrementFilename();
 
     PBRT_CPU_GPU
     SampledWavelengths SampleWavelengths(Float u) const {

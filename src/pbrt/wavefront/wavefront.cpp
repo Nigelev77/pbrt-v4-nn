@@ -44,6 +44,9 @@ namespace pbrt
         metadata.renderTimeSeconds = seconds;
         metadata.samplesPerPixel = integrator->sampler.SamplesPerPixel();
         integrator->film.WriteImage(metadata);
+        
+        // Increment filename for next render (e.g., bunny-cloud_0.exr -> bunny-cloud_1.exr)
+        integrator->film.IncrementFilename();
     }
 
     void RenderWavefrontMultipleOrientations(BasicScene& scene, BasicSceneBuilder& builder)

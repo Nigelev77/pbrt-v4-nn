@@ -36,6 +36,46 @@ namespace pbrt {
 
     int imagesWritten = 0;
 
+// FilmBase::IncrementFilename - update filename to next index
+void FilmBase::IncrementFilename() {
+    // Find the underscore and number before the extension
+    // e.g., "bunny-cloud_0.exr" -> "bunny-cloud_1.exr"
+    size_t extPos = filename.rfind('.');
+    if (extPos == std::string::npos)
+        extPos = filename.length();
+    
+    size_t underscorePos = filename.rfind('_', extPos);
+    if (underscorePos != std::string::npos && underscorePos + 1 < extPos) {
+        // Check if everything between underscore and extension is digits
+        std::string numStr = filename.substr(underscorePos + 1, extPos - underscorePos - 1);
+        bool allDigits = !numStr.empty();
+        for (char c : numStr) {
+            if (c < '0' || c > '9') {
+                allDigits = false;
+                break;
+            }
+        }
+        
+        if (allDigits) {
+            // Parse the number manually
+            int num = 0;
+            for (char c : numStr)
+                num = num * 10 + (c - '0');
+            
+            // Increment and rebuild filename
+            std::string base = filename.substr(0, underscorePos + 1);
+            std::string ext = filename.substr(extPos);
+            filename = base + std::to_string(num + 1) + ext;
+            return;
+        }
+    }
+    
+    // No valid underscore+number found, add _1 before extension
+    std::string base = filename.substr(0, extPos);
+    std::string ext = filename.substr(extPos);
+    filename = base + "_1" + ext;
+}
+
 PBRT_CPU_GPU void Film::AddSplat(Point2f p, SampledSpectrum v, const SampledWavelengths &lambda) {
     auto splat = [&](auto ptr) { return ptr->AddSplat(p, v, lambda); };
     return Dispatch(splat);
@@ -62,6 +102,11 @@ std::string Film::ToString() const {
 std::string Film::GetFilename() const {
     auto get = [&](auto ptr) { return ptr->GetFilename(); };
     return DispatchCPU(get);
+}
+
+void Film::IncrementFilename() {
+    auto inc = [&](auto ptr) { ptr->IncrementFilename(); };
+    return DispatchCPU(inc);
 }
 
 // FilmBaseParameters Method Definitions
