@@ -222,9 +222,9 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
            sizeof(BinaryTrainingSample) * totalCount);
 
     // Shuffling sample buffer so its random distribution (the way its logged is correlated to how it samples pixels row by row)
-    // std::random_device rd;
-    // std::mt19937 g(rd());    
-    default_rng_t shuffle_rng{testbed.m_seed};
+    std::random_device rd;
+    std::mt19937 shuffle_rng(rd());
+    // default_rng_t shuffle_rng{testbed.m_seed};
     std::shuffle(binarySampleBuffer.begin(), binarySampleBuffer.end(), shuffle_rng);
 
 
@@ -238,7 +238,9 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
             min_bound = min(min_bound, rayO);
             max_bound = max(max_bound, rayO);
 
-            float tMaxVal = bs.tMax;
+            constexpr float MAX_SCENE_DIST = 50.f;
+            float tMaxVal = std::min(bs.tMax, MAX_SCENE_DIST);
+
             minTMax = min(minTMax, tMaxVal);
             maxTMax = max(maxTMax, tMaxVal);
 
@@ -263,14 +265,15 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
             //TODO: Check if i need to do some clamping here as well
             constexpr float epsilon = 1e-6f;
-            constexpr float MAX_RADIANCE = 100.f; //for now, just hard clamping this
+            constexpr float MAX_RADIANCE = 1000.f; //for now, just hard clamping this
             for (int c = 0; c < 3; ++c) {
                 if(bs.beta_before_rgb[c] > epsilon)
                 {
-                    target_buf[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = std::min(bs.L_after_rgb[c] / bs.beta_before_rgb[c], MAX_RADIANCE);
-                }
-                else
-                {
+                    float val = std::max(0.f, bs.L_after_rgb[c]);
+                    float L_clamped = std::min(MAX_RADIANCE, val / bs.beta_before_rgb[c]);
+                    float L_log = std::log(L_clamped + 1.f);
+                    target_buf[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = L_log;
+                } else {
                     target_buf[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
                 }
             }
@@ -723,9 +726,9 @@ int main(int argc, char** argv)
     Testbed testbed;
     
     // Initialize window early to establish GL context before CUDA operations
-    // tlog::info() << "Initializing window...";
+    tlog::info() << "Initializing window...";
     // testbed.init_window(1920, 1080);
-    // tlog::info() << "Window initialized.";
+    tlog::info() << "Window initialized.";
     
     // Clear any CUDA errors that may have occurred during GL initialization
     // (GL-CUDA interop can leave spurious errors)
@@ -827,8 +830,8 @@ int main(int argc, char** argv)
             {"otype", "FullyFusedMLP"},
             {"activation", "ReLU"},
             {"output_activation", "None"}, 
-            {"n_neurons", 64}, //TODO try having 128 neurons here
-            {"n_hidden_layers", 2} //TODO try having 3 hidden layers here
+            {"n_neurons", 128}, //TODO try having 128 neurons here
+            {"n_hidden_layers", 3} //TODO try having 3 hidden layers here
         }},
         {"loss", {
             {"otype", "SplitL2Loss"},
@@ -836,7 +839,7 @@ int main(int argc, char** argv)
         }},
         {"optimizer", {
             {"otype", "Adam"},
-            {"learning_rate", 1e-2},
+            {"learning_rate", 1e-3},
             {"beta1", 0.9},
             {"beta2", 0.99},
             {"epsilon", 1e-8}
@@ -884,12 +887,13 @@ int main(int argc, char** argv)
     // Window already initialized at startup
     // Training loop
     uint64_t curr_frame = 0;
-    constexpr uint64_t EPOCH_LOG_INTERVAL = 5000;
+    constexpr uint64_t EPOCH_LOG_INTERVAL = 100;
     while (testbed.frame()) {
         if (!(curr_frame % EPOCH_LOG_INTERVAL)) {
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
-                         << " loss=" << testbed.m_loss_scalar.val();
+                         << " loss=" << testbed.m_loss_scalar.val()
+                         << " ema loss=" << testbed.m_loss_scalar.ema_val();
         }
         curr_frame++;
         // The frame() function handles training steps if m_train is true.

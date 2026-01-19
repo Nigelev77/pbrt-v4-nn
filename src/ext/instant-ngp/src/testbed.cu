@@ -4651,9 +4651,10 @@ void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 
 	uint64_t max_input_size = std::min((uint64_t)target_batch_size, m_n_volume_training_samples);
 
-        // Compute actual batch size from the batch buffer size
+	// Compute actual batch size, rounded down to BATCH_SIZE_GRANULARITY (256)
+	// tiny-cuda-nn requires batch sizes to be multiples of BATCH_SIZE_GRANULARITY
 
-	uint64_t batch_size = (uint64_t)(max_input_size / N_VOLUME_INPUT_DIMS);
+	uint64_t batch_size = (max_input_size / tcnn::BATCH_SIZE_GRANULARITY) * tcnn::BATCH_SIZE_GRANULARITY;
 	if(batch_size == 0)
 	{
 		tlog::warning("Batch size is 0, skipping training step...");
