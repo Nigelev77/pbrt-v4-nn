@@ -842,7 +842,8 @@ int main(int argc, char** argv)
             {"learning_rate", 1e-3},
             {"beta1", 0.9},
             {"beta2", 0.99},
-            {"epsilon", 1e-8}
+            {"epsilon", 1e-8},
+            {"gradient_clipping_magnitude", 1.0}
         }}
     };
     

@@ -579,9 +579,9 @@ void Testbed::set_train(bool mtrain) {
 
 void Testbed::compute_and_save_marching_cubes_mesh(const fs::path& filename, ivec3 res3d, BoundingBox aabb, float thresh, bool unwrap_it) {
 	mat3 render_aabb_to_local = mat3::identity();
-	if (aabb.is_empty()) {
+        if (aabb.is_empty()) { 
 		aabb = m_testbed_mode == ETestbedMode::Nerf ? m_render_aabb : m_aabb;
-		render_aabb_to_local = m_render_aabb_to_local;
+        	render_aabb_to_local = m_render_aabb_to_local;
 	}
 	marching_cubes(res3d, aabb, render_aabb_to_local, thresh);
 	save_mesh(
@@ -5634,6 +5634,64 @@ void Testbed::load_snapshot(std::istream& stream, bool is_compressed) {
 
 	// Network config path is unknown.
 	m_network_config_path = "";
+}
+
+void Testbed::save_model(const fs::path& path, bool include_optimizer_state, bool compress)
+{
+	m_network_config["snapshot"] = m_trainer->serialize(include_optimizer_state);
+
+	auto& snapshot = m_network_config["snapshot"];
+	snapshot["version"] = SNAPSHOT_FORMAT_VERSION;
+	snapshot["mode"] = to_string(m_testbed_mode);
+
+	snapshot["training_step"] = m_training_step;
+	snapshot["loss"] = m_loss_scalar.val();
+	snapshot["aabb"] = m_aabb;
+	snapshot["bounding_radius"] = m_bounding_radius;
+	snapshot["render_aabb_to_local"] = m_render_aabb_to_local;
+	snapshot["render_aabb"] = m_render_aabb;
+	snapshot["up_dir"] = m_up_dir;
+	snapshot["sun_dir"] = m_sun_dir;
+	snapshot["exposure"] = m_exposure;
+	snapshot["background_color"] = m_background_color;
+
+	snapshot["camera"]["matrix"] = m_camera;
+	snapshot["camera"]["fov_axis"] = m_fov_axis;
+	snapshot["camera"]["relative_focal_length"] = m_relative_focal_length;
+	snapshot["camera"]["screen_center"] = m_screen_center;
+	snapshot["camera"]["zoom"] = m_zoom;
+	snapshot["camera"]["scale"] = m_scale;
+
+	snapshot["camera"]["aperture_size"] = m_aperture_size;
+	snapshot["camera"]["autofocus"] = m_autofocus;
+	snapshot["camera"]["autofocus_target"] = m_autofocus_target;
+	snapshot["camera"]["autofocus_depth"] = m_slice_plane_z;
+
+	snapshot["pbrt"]["rays_per_batch"] = m_n_volume_batch_size;
+	snapshot["pbrt"]["inputs_scale"] = m_volume_training_inputs_scale;
+	snapshot["pbrt"]["inputs_offset"] = m_volume_training_inputs_offset;
+	snapshot["pbrt"]["tMax_scale"] = m_volume_training_inputs_tMax_offset;
+	snapshot["pbrt"]["tMax_offset"] = m_volume_training_inputs_tMax_offset;
+	snapshot["pbrt"]["N_training_samples"] = m_n_volume_training_samples;
+	snapshot["pbrt"]["N_validation_samples"] = m_n_volume_validation_samples;
+	snapshot["pbrt"]["N_test_samples"] = m_n_volume_test_samples;
+
+
+
+	m_network_config_path = path;
+	std::ofstream f{native_string(m_network_config_path), std::ios::out | std::ios::binary};
+	if(equals_case_insensitive(m_network_config_path.extension(), "ingp"))
+	{
+            zstr::ostream zf{f, zstr::default_buff_size,
+                             compress ? Z_DEFAULT_COMPRESSION : Z_NO_COMPRESSION};
+            json::to_msgpack(m_network_config, zf);
+	}
+	else
+	{
+            json::to_msgpack(m_network_config, f);
+	}
+
+	tlog::success() << "Saved model '" << path.str() << "'";
 }
 
 Testbed::CudaDevice::CudaDevice(int id, bool is_primary) : m_id{id}, m_is_primary{is_primary} {

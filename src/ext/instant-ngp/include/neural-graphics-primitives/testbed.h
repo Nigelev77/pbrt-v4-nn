@@ -577,6 +577,10 @@ public:
 	void load_snapshot(nlohmann::json config);
 	void load_snapshot(const fs::path& path);
 	void load_snapshot(std::istream& stream, bool is_compressed = true);
+
+	void save_model(const fs::path& path, bool include_optimizer_state, bool compress);
+	void load_model(const fs::path& path);
+
 	CameraKeyframe copy_camera_to_keyframe() const;
 	void set_camera_from_keyframe(const CameraKeyframe& k);
 	void set_camera_from_time(float t);
