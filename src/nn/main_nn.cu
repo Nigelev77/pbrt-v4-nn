@@ -685,6 +685,9 @@ int main(int argc, char** argv)
         },
     };
 
+    ValueFlag<std::string> data_flag{
+        parser, "TRAINING_DATA_PATH", "Path to training data binary file", {"data-path"}};
+
     // Flag no_gui_flag{
 	// 	parser,
 	// 	"NO_GUI",
@@ -716,14 +719,14 @@ int main(int argc, char** argv)
 	}
 
     // Parse args first before any CUDA/GL init
-    fs::path data_path;
-    if (argc > 1) {
-        data_path = argv[1];
-    } else {
-        // Default or error
-        tlog::error() << "Please provide a data path.";
-        return 1;
-    }
+    fs::path data_path = get(data_flag);
+    // if (argc > 1) {
+    //     data_path = argv[1];
+    // } else {
+    //     // Default or error
+    //     tlog::error() << "Please provide a data path.";
+    //     return 1;
+    // }
 
     // Check DISPLAY is set for X11 forwarding
     const char* display = std::getenv("DISPLAY");
@@ -909,7 +912,7 @@ int main(int argc, char** argv)
     
     
     //For now, don't compress but include optimizer state
-    testbed.save_model("/workspace/pbrt-v4-nn/default_model.json", true, false);
+    testbed.save_model("/workspace/pbrt-v4-nn/default_model.msgpack", true, false);
     
     
     
