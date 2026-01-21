@@ -5668,6 +5668,7 @@ void Testbed::save_model(const fs::path& path, bool include_optimizer_state, boo
 	snapshot["camera"]["autofocus_depth"] = m_slice_plane_z;
 
 	snapshot["pbrt"]["rays_per_batch"] = m_n_volume_batch_size;
+	snapshot["pbrt"]["batch_size"] = m_training_batch_size;
 	snapshot["pbrt"]["inputs_scale"] = m_volume_training_inputs_scale;
 	snapshot["pbrt"]["inputs_offset"] = m_volume_training_inputs_offset;
 	snapshot["pbrt"]["tMax_scale"] = m_volume_training_inputs_tMax_offset;
@@ -5692,6 +5693,104 @@ void Testbed::save_model(const fs::path& path, bool include_optimizer_state, boo
 	}
 
 	tlog::success() << "Saved model '" << path.str() << "'";
+}
+
+void Testbed::load_model(const fs::path& path)
+{
+
+	auto config = load_network_config(path);
+
+	if(!config.contains("snapshot"))
+	{
+            throw std::runtime_error{
+                fmt::format("File '{}' does not contain a snapshot", path.str())};
+	}
+
+	m_network_config_path = path;
+
+	const auto &snapshot = config["snapshot"];
+	if(snapshot.value("version", 0) < SNAPSHOT_FORMAT_VERSION)
+	{
+            throw std::runtime_error{"Snapshot uses an old format, cannot be loaded"};
+	}
+
+	if(snapshot.contains("mode"))
+	{
+		set_mode(mode_from_string(snapshot["mode"]));
+	}
+	else
+	{
+		//This function should only be called for snapshots for pbrt modes
+                set_mode(ETestbedMode::PBRT);
+	}
+
+	m_aabb = snapshot.value("aabb", m_aabb);
+	m_bounding_radius = snapshot.value("bounding_radius", m_bounding_radius);
+
+	m_background_color = snapshot.value("background_color", m_background_color);
+
+	// Needs to happen after `load_nerf_post()`
+	m_sun_dir = snapshot.value("sun_dir", m_sun_dir);
+	m_exposure = snapshot.value("exposure", m_exposure);
+
+	//NOTE: I don't think this is necessary but adding this in anyway
+	if (snapshot.contains("camera")) {
+		m_camera = snapshot["camera"].value("matrix", m_camera);
+		m_fov_axis = snapshot["camera"].value("fov_axis", m_fov_axis);
+		if (snapshot["camera"].contains("relative_focal_length")) {
+			from_json(snapshot["camera"]["relative_focal_length"], m_relative_focal_length);
+		}
+		if (snapshot["camera"].contains("screen_center")) {
+			from_json(snapshot["camera"]["screen_center"], m_screen_center);
+		}
+		m_zoom = snapshot["camera"].value("zoom", m_zoom);
+		m_scale = snapshot["camera"].value("scale", m_scale);
+
+		m_aperture_size = snapshot["camera"].value("aperture_size", m_aperture_size);
+		if (m_aperture_size != 0) {
+			m_dlss = false;
+		}
+
+		m_autofocus = snapshot["camera"].value("autofocus", m_autofocus);
+		if (snapshot["camera"].contains("autofocus_target")) {
+			from_json(snapshot["camera"]["autofocus_target"], m_autofocus_target);
+		}
+		m_slice_plane_z = snapshot["camera"].value("autofocus_depth", m_slice_plane_z);
+	}
+
+	//NOTE: I don't think this part is necessary either but including it anyway
+	if (snapshot.contains("render_aabb_to_local")) {
+		from_json(snapshot.at("render_aabb_to_local"), m_render_aabb_to_local);
+	}
+	m_render_aabb = snapshot.value("render_aabb", m_render_aabb);
+	if (snapshot.contains("up_dir")) {
+		from_json(snapshot.at("up_dir"), m_up_dir);
+	}
+
+	//INFO: Pbrt specific loading
+
+	// m_n_volume_batch_size = snapshot["pbrt"]["rays_per_batch"];
+	m_n_volume_batch_size = snapshot["pbrt"]["batch_size"];
+	m_training_batch_size = m_n_volume_batch_size;
+	m_volume_training_inputs_scale = snapshot["pbrt"]["inputs_scale"];
+	m_volume_training_inputs_offset = snapshot["pbrt"]["inputs_offset"];
+	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_scale"];
+	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_offset"];
+	m_n_volume_training_samples	 = snapshot["pbrt"]["N_training_samples"];
+	m_n_volume_validation_samples = snapshot["pbrt"]["N_validation_samples"];
+	m_n_volume_test_samples	= snapshot["pbrt"]["N_test_samples"];
+	
+
+	m_network_config = std::move(config);
+        reset_network(false);
+
+
+	m_training_step = m_network_config["snapshot"]["training_step"];
+	m_loss_scalar.set(m_network_config["snapshot"]["loss"]);
+
+	m_trainer->deserialize(m_network_config["snapshot"]);
+
+        set_all_devices_dirty();
 }
 
 Testbed::CudaDevice::CudaDevice(int id, bool is_primary) : m_id{id}, m_is_primary{is_primary} {

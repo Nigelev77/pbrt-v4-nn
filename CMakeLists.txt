@@ -19,6 +19,8 @@ set(SCENE_DIR "${CMAKE_SOURCE_DIR}/scenes")
 SET(PRIMITIVE_OUTPUT_FILE "${CMAKE_SOURCE_DIR}/default_primitive_output.bin")
 SET(PRIMITIVE_OUTPUT_FILE_TARGET_LUMINANCE "${CMAKE_SOURCE_DIR}/default_primitive_output_target.bin")
 SET(PRIMITIVE_INPUT_FILE "${CMAKE_SOURCE_DIR}/default_primitive_input.bin")
+SET(MODEL_FILE "${CMAKE_SOURCE_DIR}/default_model_file.json")
+SET(MODEL_FILE_COMPRESSED "${CMAKE_SOURCE_DIR}/default_model_file.json")
 
 configure_file(
   ${CMAKE_CURRENT_SOURCE_DIR}/src/pbrt/util/config.h.in

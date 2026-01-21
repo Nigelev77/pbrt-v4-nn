@@ -72,7 +72,6 @@
 #include <fstream>
 #include <filesystem/directory.h>
 #include <random>
-
 using namespace tcnn;
 using namespace args;
 using namespace ngp;
@@ -669,11 +668,22 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-    // ArgumentParser parser{
-    //     "Instant Neural Graphics Primitives\n"
-    //     "Version " NGP_VERSION,
-    //     "",
-	// };
+    
+
+    ArgumentParser parser{
+        "Instant Neural Graphics Primitives\n"
+        "Version " NGP_VERSION,
+        "",
+	};
+
+    ValueFlag<std::string> model_flag{
+        parser, 
+        "MODEL_PATH",
+        "Model path to load",
+        {
+            "model-path"
+        },
+    };
 
     // Flag no_gui_flag{
 	// 	parser,
@@ -682,28 +692,29 @@ int main(int argc, char** argv)
 	// 	{"no-gui"},
 	// };
 
-    	// Parse command line arguments and react to parsing
+    // Parse command line arguments and react to parsing
 	// errors using exceptions.
-	// try {
-	// 	if (arguments.empty()) {
-	// 		tlog::error() << "Number of arguments must be bigger than 0.";
-	// 		return -3;
-	// 	}
+	try {
+		if (arguments.empty()) {
+			tlog::error() << "Number of arguments must be bigger than 0.";
+			return -3;
+		}
 
-	// 	parser.Prog(arguments.front());
-	// 	parser.ParseArgs(begin(arguments) + 1, end(arguments));
-	// } catch (const Help&) {
-	// 	std::cout << parser;
-	// 	return 0;
-	// } catch (const ParseError& e) {
-	// 	std::cerr << e.what() << std::endl;
-	// 	std::cerr << parser;
-	// 	return -1;
-	// } catch (const ValidationError& e) {
-	// 	std::cerr << e.what() << std::endl;
-	// 	std::cerr << parser;
-	// 	return -2;
-	// }
+		parser.Prog(arguments.front());
+		parser.ParseArgs(begin(arguments) + 1, end(arguments));
+	} catch (const Help&) {
+		std::cout << parser;
+		return 0;
+	} catch (const ParseError& e) {
+		std::cerr << e.what() << std::endl;
+		std::cerr << parser;
+		return -1;
+	} catch (const ValidationError& e) {
+		std::cerr << e.what() << std::endl;
+		std::cerr << parser;
+		return -2;
+	}
+
     // Parse args first before any CUDA/GL init
     fs::path data_path;
     if (argc > 1) {
@@ -723,8 +734,13 @@ int main(int argc, char** argv)
         tlog::info() << "DISPLAY=" << display;
     }
 
+
+
     Testbed testbed;
     
+
+
+
     // Initialize window early to establish GL context before CUDA operations
     tlog::info() << "Initializing window...";
     // testbed.init_window(1920, 1080);
@@ -736,154 +752,139 @@ int main(int argc, char** argv)
     CUDA_CHECK_THROW(cudaDeviceSynchronize());
 
     
-
-    //INFO: Load Nerf data, because Volume data actually refers to NanoVDB
-    // std::ifstream f{native_string(data_path), std::ios::in | std::ios::binary}; // Removed as it's handled in load_nerfdataset
-
-    //INFO: setting training data available to true
-    testbed.m_training_data_available = true;
-
-    auto& training = testbed.m_nerf.training;
-    NerfDataset& nerf_data = training.dataset;
-    nerf_data.n_extra_learnable_dims = 2;
-    nerf_data.scale = 1.0;
-    nerf_data.is_hdr = true;
-
-
-
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-    tlog::info() << "Setting testbed mode...\n";
-    // TODO: Change this to what is most appropriate
-    testbed.set_mode(ETestbedMode::PBRT);
-
-    // Manually load config to ensure dir_encoding and rgb_network are present
-    // This prevents crash at reset_network() because default config lacks these fields
-    // required for NeRF mode
-    // nlohmann::json c = {
-    //     {"loss", {{"otype", "Huber"}}},
-    //     {"optimizer",
-    //      {{"otype", "Ema"},
-    //       {"decay", 0.95},
-    //       {"nested",
-    //        {{"otype", "ExponentialDecay"},
-    //         {"decay_start", 20000},
-    //         {"decay_interval", 10000},
-    //         {"decay_base", 0.33},
-    //         {"nested",
-    //          {{"otype", "Adam"},
-    //           {"learning_rate", 1e-2},
-    //           {"beta1", 0.9},
-    //           {"beta2", 0.99},
-    //           {"epsilon", 1e-15},
-    //           {"l2_reg", 1e-6}}}}}}},
-    //     {"encoding",
-    //      {{"otype", "HashGrid"},
-    //       {"n_levels", 8},
-    //       {"n_features_per_level", 4},
-    //       {"log2_hashmap_size", 19},
-    //       {"base_resolution", 16}}},
-    //     {"network",
-    //      {{"otype", "FullyFusedMLP"},
-    //       {"activation", "ReLU"},
-    //       {"output_activation", "None"},
-    //       {"n_neurons", 64},
-    //       {"n_hidden_layers", 1}}},
-    //     {"dir_encoding",
-    //      {{"otype", "Composite"},
-    //       {"nested",
-    //        {{{"n_dims_to_encode", 3}, {"otype", "SphericalHarmonics"}, {"degree", 4}},
-    //         {{"otype", "Identity"}}}}}},
-    //     {"rgb_network",
-    //      {{"otype", "FullyFusedMLP"},
-    //       {"activation", "ReLU"},
-    //       {"output_activation", "None"},
-    //       {"n_neurons", 64},
-    //       {"n_hidden_layers", 2}}}};
-    nlohmann::json config = 
+    if(model_flag)
     {
-        {"encoding", {
-            {"otype", "Composite"},
-            {"nested", {
-                {
-                    {"n_dims_to_encode", 3},
-                    {"otype", "HashGrid"},
-                    {"n_levels", 16},
-                    {"n_features_per_level", 2},
-                    {"log2_hashmap_size", 19},
-                    {"base_resolution", 16},
-                    {"per_level_scale", 1.5}
-                },
-                {
-                    {"n_dims_to_encode", 3},
-                    {"otype", "SphericalHarmonics"},
-                    {"degree", 4 }
-                },
-                {
-                    {"n_dims_to_encode", 1},
-                    {"otype", "Frequency"}, 
-                    {"n_frequencies", 4} //TODO try having n_frequencies = 6
-                }
+        const filesystem::path &model_path = get(model_flag);
+        tlog::info() << "Loading model file from " << model_path;
+
+        testbed.load_model(model_path);
+
+        
+        testbed.m_training_data_available = true;
+
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+        testbed.set_mode(ETestbedMode::PBRT);
+
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+        testbed.set_jit_fusion(false);
+
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+        tlog::info() << "Loading dataset...";
+        load_nerfdataset(testbed, data_path);
+
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+        testbed.update_imgui_paths();
+
+        //TODO: Put this as a flag
+        testbed.m_train = true;
+        testbed.m_training_data_available = true;
+
+    } else {
+        //INFO: Load Nerf data, because Volume data actually refers to NanoVDB
+        // std::ifstream f{native_string(data_path), std::ios::in | std::ios::binary}; // Removed as it's handled in load_nerfdataset
+        
+        //INFO: setting training data available to true
+        testbed.m_training_data_available = true;
+        
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        tlog::info() << "Setting testbed mode...\n";
+        // TODO: Change this to what is most appropriate
+        testbed.set_mode(ETestbedMode::PBRT);
+        
+        nlohmann::json config = 
+        {
+            {"encoding", {
+                {"otype", "Composite"},
+                {"nested", {
+                    {
+                        {"n_dims_to_encode", 3},
+                        {"otype", "HashGrid"},
+                        {"n_levels", 16},
+                        {"n_features_per_level", 2},
+                        {"log2_hashmap_size", 19},
+                        {"base_resolution", 16},
+                        {"per_level_scale", 1.5}
+                    },
+                    {
+                        {"n_dims_to_encode", 3},
+                        {"otype", "SphericalHarmonics"},
+                        {"degree", 4 }
+                    },
+                    {
+                        {"n_dims_to_encode", 1},
+                        {"otype", "Frequency"}, 
+                        {"n_frequencies", 4} //TODO try having n_frequencies = 6
+                    }
+                }}
+            }},
+            {"network", {
+                {"otype", "FullyFusedMLP"},
+                {"activation", "ReLU"},
+                {"output_activation", "None"}, 
+                {"n_neurons", 128}, //TODO try having 128 neurons here
+                {"n_hidden_layers", 3} //TODO try having 3 hidden layers here
+            }},
+            {"loss", {
+                {"otype", "SplitL2Loss"},
+                {"split_idx", 3}
+            }},
+            {"optimizer", {
+                {"otype", "Adam"},
+                {"learning_rate", 1e-3},
+                {"beta1", 0.9},
+                {"beta2", 0.99},
+                {"epsilon", 1e-8},
+                {"gradient_clipping_magnitude", 1.0}
             }}
-        }},
-        {"network", {
-            {"otype", "FullyFusedMLP"},
-            {"activation", "ReLU"},
-            {"output_activation", "None"}, 
-            {"n_neurons", 128}, //TODO try having 128 neurons here
-            {"n_hidden_layers", 3} //TODO try having 3 hidden layers here
-        }},
-        {"loss", {
-            {"otype", "SplitL2Loss"},
-            {"split_idx", 3}
-        }},
-        {"optimizer", {
-            {"otype", "Adam"},
-            {"learning_rate", 1e-3},
-            {"beta1", 0.9},
-            {"beta2", 0.99},
-            {"epsilon", 1e-8},
-            {"gradient_clipping_magnitude", 1.0}
-        }}
-    };
-    
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-
-    tlog::info() << "setting network json...\n";
-    testbed.reload_network_from_json(config);
-
-    // Disable JIT fusion to avoid CUDA_ERROR_ILLEGAL_ADDRESS during cuModuleLoadDataEx
-    // This is a workaround for a potential driver/PTX compatibility issue
-    testbed.set_jit_fusion(false);
-    tlog::info() << "JIT fusion disabled.";
-
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-    tlog::info() << "Loading dataset...\n";
-    load_nerfdataset(testbed, data_path);
-
-    testbed.update_imgui_paths();
-
-    // Reset network to ensure it picks up the new dimensions
-    tlog::info() << "Resetting network...";
-    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-    testbed.reset_network();
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    tlog::info() << "Network reset complete.";
-
-    // Initialize training state (gradients, optimizers, etc.)
-    tlog::info() << "Calling load_nerf_post...";
-    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-    testbed.load_nerf_post();
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    tlog::info() << "load_nerf_post complete.";
-
-    testbed.m_train = true;
-    testbed.m_training_batch_size = 1 << 18;
-    testbed.m_training_data_available = true;
-    // nerf_data.n_extra_learnable_dims = 2;
-    nerf_data.n_extra_learnable_dims = 0;
+        };
+        
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        
+        tlog::info() << "setting network json...\n";
+        testbed.reload_network_from_json(config);
+        
+        // Disable JIT fusion to avoid CUDA_ERROR_ILLEGAL_ADDRESS during cuModuleLoadDataEx
+        // This is a workaround for a potential driver/PTX compatibility issue
+        testbed.set_jit_fusion(false);
+        tlog::info() << "JIT fusion disabled.";
+        
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        tlog::info() << "Loading dataset...\n";
+        load_nerfdataset(testbed, data_path);
+        
+        testbed.update_imgui_paths();
+        
+        // Reset network to ensure it picks up the new dimensions
+        tlog::info() << "Resetting network...";
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        testbed.reset_network();
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        tlog::info() << "Network reset complete.";
+        
+        // Initialize training state (gradients, optimizers, etc.)
+        tlog::info() << "Calling load_nerf_post...";
+        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        testbed.load_nerf_post();
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        tlog::info() << "load_nerf_post complete.";
+        
+        testbed.m_train = true;
+        testbed.m_training_batch_size = 1 << 18;
+        testbed.m_training_data_available = true;
+        // nerf_data.n_extra_learnable_dims = 2;
+        // nerf_data.n_extra_learnable_dims = 0;
+    }
 
     // Window already initialized at startup
     // Training loop
@@ -893,15 +894,27 @@ int main(int argc, char** argv)
         if (!(curr_frame % EPOCH_LOG_INTERVAL)) {
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
-                         << " loss=" << testbed.m_loss_scalar.val()
-                         << " ema loss=" << testbed.m_loss_scalar.ema_val();
+            << " loss=" << testbed.m_loss_scalar.val()
+            << " ema loss=" << testbed.m_loss_scalar.ema_val();
         }
         curr_frame++;
+        
+        
+        if(curr_frame >= 20000)
+        {
+            break;
+        }
         // The frame() function handles training steps if m_train is true.
     }
-
+    
+    
+    //For now, don't compress but include optimizer state
+    testbed.save_model("/workspace/pbrt-v4-nn/default_model.json", true, false);
+    
+    
+    
     return 0;
 }
-
+    
 #endif
         
