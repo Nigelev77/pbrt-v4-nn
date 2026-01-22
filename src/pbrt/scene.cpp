@@ -165,8 +165,8 @@ namespace pbrt
             AnimatedTransform(worldFromCamera[0], graphicsState.transformStartTime,
                 worldFromCamera[1], graphicsState.transformEndTime));
         renderFromWorld = cameraTransform.RenderFromWorld();
-        Point3f sphereCentreCamera = camera.look;
-        Float radius = Distance(camera.pos, camera.look);
+        Point3f sphereCentreCamera = Point3f(0.f, 0.f, 5.f);
+        Float radius = Distance(camera.pos, sphereCentreCamera);
         using pbrt::Transform;
         Transform originalLookAt = pbrt::LookAt(camera.pos, camera.look, camera.up);
         //NOTE: Could use graphicsState.ctm?
@@ -179,33 +179,46 @@ namespace pbrt
             std::vector<CameraSceneEntity> sampled;
             for (int i = 1; i < renderOrientationCnt; ++i)
             {
-                Point3f newCameraPos;
                 Vector3f newUp = camera.up;
 
-                Point2f u(rng.Uniform<Float>(), rng.Uniform<Float>());
-                Point3f newPos = sphereCentreCamera + SampleUniformSphere(u) * radius;
+                // constexpr Float groundY = -50.f;
+                // constexpr Float groundMargin = 10.f;
+                constexpr int maxAttempts = 100;
+
+                Point3f newPos;
+                int attempts = 0;
+                do{
+                    //Sample full sphere
+                    Point2f u(rng.Uniform<Float>(), rng.Uniform<Float>());
+                    newPos = sphereCentreCamera + SampleUniformSphere(u) * radius;
+                    ++attempts;
+                } while (Dot(newPos - sphereCentreCamera, camera.up) < -5.f && attempts < 100);
+
+                if(attempts >= maxAttempts)
+                {
+                    newPos = sphereCentreCamera + camera.up * radius;
+                }
+
                 Vector3f viewDir = Normalize(sphereCentreCamera - newPos);
                 Vector3f up = camera.up;
                 //TODO: Deal with when up is not +z
                 if (std::abs(Dot(viewDir, up)) > 0.99f)
-                    up = Vector3f(0, 1, 0);  // Switch if nearly aligned
-                up = Normalize(Cross(Cross(viewDir, up), viewDir));
+                {
+                    Vector3f v1, v2;
+                    pbrt::CoordinateSystem(viewDir, &v1, &v2);
+                    up = v2;
+                }
 
                 //TODO: Have a look at situations where LookAt is not the last transform in ctm...
                 // Is that even a situation?
-                Transform newLookAt = pbrt::LookAt(newCameraPos, sphereCentreCamera, up);
-                Transform preLookAtTransform = originalCameraFromWorld * Inverse(originalLookAt);
+                Transform newCameraFromWorld = pbrt::LookAt(newPos, sphereCentreCamera, up);
+                Transform newWorldFromCamera = Inverse(newCameraFromWorld);
 
-                Transform cameraFromWorld = preLookAtTransform * newLookAt;
-                Transform worldFromCamera = Inverse(cameraFromWorld);
-
-                const AnimatedTransform& originalRenderFromCamera = camera.cameraTransform.RenderFromCamera();
-                Float startTime = originalRenderFromCamera.startTime;
-                Float endTime = originalRenderFromCamera.endTime;
 
                 CameraTransform sampledTransform(
-                    AnimatedTransform(worldFromCamera, startTime, worldFromCamera, endTime)
-                );
+                    AnimatedTransform(
+                        newWorldFromCamera, graphicsState.transformStartTime,
+                        newWorldFromCamera, graphicsState.transformEndTime));
 
                 ParameterDictionary dictCopy = dict.Clone();
                 CameraSceneEntity c = CameraSceneEntity(name, std::move(dictCopy), loc, sampledTransform, graphicsState.currentOutsideMedium);
@@ -216,8 +229,8 @@ namespace pbrt
                 sampled.emplace_back(std::move(c));
             }
             
-            
-            sampled.insert(sampled.begin(), CameraSceneEntity(name, std::move(dict), loc, cameraTransform, graphicsState.currentOutsideMedium));
+            ParameterDictionary originalDict = dict.Clone();
+            sampled.insert(sampled.begin(), CameraSceneEntity(name, std::move(originalDict), loc, cameraTransform, graphicsState.currentOutsideMedium));
             cameras.insert(cameras.begin(), sampled.begin(), sampled.end());
         }
         camera = CameraSceneEntity(name, std::move(dict), loc, cameraTransform,

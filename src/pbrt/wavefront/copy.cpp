@@ -2,6 +2,8 @@
 #include "config.h"
 
 #include <pbrt/media.h>
+#include <thread>
+#include <chrono>
 
 #include <type_traits>
 #ifdef PBRT_BUILD_GPU_RENDERER
@@ -9,7 +11,9 @@
 #endif
 namespace pbrt
 {
-    constexpr uint64_t kMaxBytes = 8 * 1024ull * 1024ull * 1024ull;
+    constexpr uint64_t kMaxBytes = 32 * 1024ull * 1024ull * 1024ull;
+    constexpr uint64_t kBinaryTrainingSampleSize = 76;
+    constexpr uint64_t kMaxSamples = kMaxBytes / kBinaryTrainingSampleSize;
     constexpr bool optimized_output = false;
     constexpr bool use_volume_training_data = true;
 
@@ -36,29 +40,15 @@ namespace pbrt
                 rayLogWorkQueue.pop();
             }
 
-            // Process batch
-            {
-                std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
-
-                auto outPos = outputRayDataFile->tellp();
-                auto inPos  = inputRayDataFile->tellp();
-    
-                // If tellp() is not valid, try seeking to end and re-query.
-                if (outPos == std::streampos(-1) || inPos == std::streampos(-1)) {
-                    outputRayDataFile->seekp(0, std::ios::end);
-                    inputRayDataFile->seekp(0, std::ios::end);
-                    outPos = outputRayDataFile->tellp();
-                    inPos  = inputRayDataFile->tellp();
-                    LOG_VERBOSE("Failed to seek to end of file...\n");
-                }
-    
-                // If either file is already >= 1 GiB, don't write anything.
-                if ((outPos != std::streampos(-1) && static_cast<uint64_t>(outPos) >= kMaxBytes) ||
-                    (inPos  != std::streampos(-1) && static_cast<uint64_t>(inPos)  >= kMaxBytes)) {
-                    LOG_VERBOSE("Files are larger than 1GB, skipping outputting...\n");
-                    return;
-                }
+            bool skipWrite = false;
+                
+            // Check if we've already written enough samples
+            if (rayLogSampleCnt >= kMaxSamples) {
+                LOG_VERBOSE("Sample count %llu >= max %llu, skipping write\n", 
+                            rayLogSampleCnt, kMaxSamples);
+                continue;
             }
+
 
             // std::string batchOutput;
             // batchOutput.reserve(batch.trainingData.size() * 150);
@@ -185,6 +175,16 @@ namespace pbrt
     {
         if(!Options->useGPU) return;
 
+        constexpr size_t maxQueuedBatches = 16;
+        {
+            std::unique_lock<std::mutex> lock(rayLogMutex);
+            while(rayLogWorkQueue.size() >= maxQueuedBatches && !rayLogShutdown)
+            {
+                lock.unlock();
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                lock.lock();
+            }
+        }
 
         int nItems = 0;
 

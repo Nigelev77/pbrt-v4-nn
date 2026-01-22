@@ -509,7 +509,7 @@ namespace pbrt
         std::string ToString() const;
 
         int renderOrientationCnt = NUMBER_OF_ORIENTATIONS;
-        int currentCamera = 1;
+        int currentCamera = 0;
     private:
         // BasicSceneBuilder::GraphicsState Definition
         struct GraphicsState

@@ -91,15 +91,14 @@ __device__ uint32_t pcg_hash(uint32_t input)
 }
 
 __global__ void gather_volume_training_batch_kernel(
-	const uint32_t n_samples_total,
 	const uint32_t batch_size,
 	const uint32_t n_input_dims, 
 	const uint32_t n_output_dims,
 	const float* __restrict__ all_inputs,
 	const float* __restrict__ all_outputs,
+	const uint32_t* __restrict__ shuffled_indices, //Pre-shuffled indices
 	float* __restrict__ batch_inputs,
-	float* __restrict__ batch_outputs,
-	const uint32_t seed
+	float* __restrict__ batch_outputs
 ) 
 {
 	//TODO: Consider different sampling strategies other than just a uniform distribution for improved convergence/training
@@ -109,22 +108,33 @@ __global__ void gather_volume_training_batch_kernel(
 	if(i >= batch_size) return;
 
 	// Get random index from full dataset
-	uint32_t hash = pcg_hash(i + seed * 782367U);
-	uint32_t randomIdx = hash % n_samples_total;
-	
-	// Copy over inputs of randomIdx to batch vector
+        uint32_t sample_idx = shuffled_indices[i];
+
+        // Copy over inputs of randomIdx to batch vector
 	for(uint32_t d = 0; d < n_input_dims; ++d)
 	{
-		batch_inputs[i * n_input_dims + d] = all_inputs[randomIdx * n_input_dims + d];
+		batch_inputs[i * n_input_dims + d] = all_inputs[sample_idx * n_input_dims + d];
 	}
 
 	// Copy over outputs of randomIdx to batch vector
 	for(uint32_t d = 0; d < n_output_dims; ++d)
 	{
-		batch_outputs[i * n_output_dims + d] = all_outputs[randomIdx * n_output_dims + d];
+		batch_outputs[i * n_output_dims + d] = all_outputs[sample_idx * n_output_dims + d];
 	}
 }
 
+__global__ void generate_permuted_indices_kernel(
+	const uint32_t n_samples,
+	uint32_t* __restrict__ indices,
+	const uint32_t seed
+)
+{
+	uint32_t i = threadIdx.x + blockDim.x * blockIdx.x;
+
+	if(i >= n_samples) return;
+
+	indices[i] = i;
+}
 
 json merge_parent_network_config(const json& child, const fs::path& child_path) {
 	if (!child.contains("parent")) {
@@ -3974,54 +3984,74 @@ bool Testbed::validation_test()
 	const uint32_t max_batch_size = 1 << 20;
 
 
-	// Allocate buffer for squared errors
-	GPUMemory<float> squared_errors(n_elements);
+	// Allocate buffer for loss, kernel writes per-element values
+	GPUMemory<float> loss_values(max_batch_size * N_VOLUME_TARGET_DIMS);
+		
+	// Predictions buffer
+	GPUMemory<network_precision_t> predictions(max_batch_size * N_VOLUME_TARGET_DIMS);
 
-
-	GPUMemory<float> predictions(max_batch_size * N_VOLUME_TARGET_DIMS);
+	// Dummy gradients buffer (requried by loss->eval but ignore for validation)
+	GPUMemory<network_precision_t> dummy_gradients(max_batch_size * N_VOLUME_TARGET_DIMS);
 
 	const uint32_t n_batches =
             (uint32_t)tcnn::div_round_up(n_elements, (uint64_t)max_batch_size);
 
-	for(uint32_t batch_idx = 0; batch_idx < n_batches; ++batch_idx)
-	{
+
+	float total_loss = 0.f;
+	uint64_t total_samples = 0;
+	for (uint32_t batch_idx = 0; batch_idx < n_batches; ++batch_idx) {
 		uint64_t offset = (uint64_t)batch_idx * max_batch_size;
 
-
-		uint32_t batch_size = (uint32_t)std::min((uint64_t)max_batch_size, n_elements - offset);
+		uint32_t batch_size =
+			(uint32_t)std::min((uint64_t)max_batch_size, n_elements - offset);
 		batch_size = (batch_size / tcnn::BATCH_SIZE_GRANULARITY) *
-                             tcnn::BATCH_SIZE_GRANULARITY;
+						tcnn::BATCH_SIZE_GRANULARITY;
 
-
-		if(batch_size = 0)
-		{
-                    continue;
+		if (batch_size == 0) {
+			continue;
 		}
 
-		// Create GPU matrices for validaiton data
+		// Create GPU matrices for validation data
 		GPUMatrix<float> input_matrix(
 			m_volume_validation_inputs.data() + offset * N_VOLUME_INPUT_DIMS,
-			N_VOLUME_INPUT_DIMS,
-			batch_size
-		);
+			N_VOLUME_INPUT_DIMS, batch_size);
 
 		GPUMatrix<float> target_matrix(
 			m_volume_validation_targets.data() + offset * N_VOLUME_TARGET_DIMS,
-			N_VOLUME_TARGET_DIMS,
-			batch_size
-		);
+			N_VOLUME_TARGET_DIMS, batch_size);
 
-		GPUMatrix<float> predictions_matrix(predictions.data(),
-				N_VOLUME_TARGET_DIMS, batch_size);
+		GPUMatrix<network_precision_t> predictions_matrix(
+			predictions.data(), N_VOLUME_TARGET_DIMS, batch_size);
 
-		m_network->inference(stream, input_matrix, predictions_matrix, true);
+		GPUMatrix<float> loss_values_matrix(loss_values.data(), N_VOLUME_TARGET_DIMS,
+											batch_size);
 
+		GPUMatrix<network_precision_t> dummy_gradients_matrix(
+			dummy_gradients.data(), N_VOLUME_TARGET_DIMS, batch_size);
 
+		m_network->inference_mixed_precision(stream, input_matrix, predictions_matrix,
+												true);
+
+		m_loss->evaluate(stream, 1.f, predictions_matrix, target_matrix,
+							loss_values_matrix, dummy_gradients_matrix, nullptr);
+
+		float batch_loss =
+			reduce_sum(loss_values.data(), batch_size * N_VOLUME_TARGET_DIMS, stream);
+
+		total_loss += batch_loss * (batch_size * N_VOLUME_TARGET_DIMS);
+		total_samples += batch_size;
 	}
 
 	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
 
+	float mse = total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
+	float psnr = -10.f * std::log10(std::max(mse, 1e-10f));
 
+	tlog::info() << "Validation Results - MSE: " << mse << ", PNSR: " << psnr
+					<< " dB"
+					<< " (n_samples: " << total_samples << ")";
+
+	return true;
 }
 
 bool Testbed::frame() {
@@ -4697,25 +4727,69 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
             return;
 	}
 
-	uint64_t max_batch_size = std::min((uint64_t)batch_size, m_n_volume_training_samples);
+	uint64_t n_samples = m_n_volume_training_samples;
+	uint64_t actual_batch_size = std::min((uint64_t)batch_size, n_samples);
+	actual_batch_size = (actual_batch_size / BATCH_SIZE_GRANULARITY) * BATCH_SIZE_GRANULARITY;
 
-	if(m_volume_batch_inputs.size() != max_batch_size * N_VOLUME_INPUT_DIMS)
+	if(actual_batch_size == 0) return;
+	
+	if(m_volume_batch_inputs.size() != actual_batch_size * N_VOLUME_INPUT_DIMS)
 	{
-		m_volume_batch_inputs.resize(batch_size * N_VOLUME_INPUT_DIMS);
-		m_volume_batch_targets.resize(batch_size * N_VOLUME_TARGET_DIMS);
+		m_volume_batch_inputs.resize(actual_batch_size * N_VOLUME_INPUT_DIMS);
+		m_volume_batch_targets.resize(actual_batch_size * N_VOLUME_TARGET_DIMS);
+	}
+
+
+	// Reshuffle indices at start of epoch
+	if(m_volume_training_shuffled_indices.size() != n_samples || m_volume_training_epoch_offset + actual_batch_size > n_samples)
+	{
+		if(m_volume_training_shuffled_indices.size() != n_samples)
+		{
+			m_volume_training_shuffled_indices.resize(n_samples);
+		}
+
+		// Generate shuffled indices on CPU and upload
+		std::vector<uint32_t> host_indices(n_samples);
+		std::iota(host_indices.begin(), host_indices.end(), 0);
+
+		// Shuffle using epoch number as seed
+		std::mt19937 rng(m_volume_training_epoch + 42);
+		std::shuffle(host_indices.begin(), host_indices.end(), rng);
+
+		CUDA_CHECK_THROW(cudaMemcpyAsync(
+			m_volume_training_shuffled_indices.data(),
+			host_indices.data(),
+			n_samples * sizeof(uint32_t),
+			cudaMemcpyHostToDevice,
+			stream
+		));
+
+
+		m_volume_training_epoch_offset = 0;
+		m_volume_training_epoch++;
+
+
+		tlog::info() << "Starting training epoch " << m_volume_training_epoch;
+
 	}
 
 	// Launch Gather Kernel
 	uint32_t n_threads = 256;
-	uint32_t n_blocks = div_round_up(batch_size, n_threads);
+	uint32_t n_blocks = div_round_up((uint32_t)actual_batch_size, n_threads);
 
 	gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
-		(uint32_t)m_n_volume_training_samples, max_batch_size, N_VOLUME_INPUT_DIMS,
-		N_VOLUME_TARGET_DIMS, m_volume_training_inputs.data(),
-		m_volume_training_targets.data(), m_volume_batch_inputs.data(),
-		m_volume_batch_targets.data(), m_training_step);
+		(uint32_t)actual_batch_size, 
+		N_VOLUME_INPUT_DIMS,
+		N_VOLUME_TARGET_DIMS, 
+		m_volume_training_inputs.data(),
+		m_volume_training_targets.data(),
+		m_volume_training_shuffled_indices.data() + m_volume_training_epoch_offset, 
+		m_volume_batch_inputs.data(),
+		m_volume_batch_targets.data()
+	);
 
-        return;
+	m_volume_training_epoch_offset += actual_batch_size;
+	return;
 }
 
 void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaStream_t stream)

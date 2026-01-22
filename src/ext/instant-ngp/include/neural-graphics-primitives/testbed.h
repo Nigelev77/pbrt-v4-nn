@@ -1350,6 +1350,10 @@ public:
 
 	uint64_t m_n_volume_batch_size = 0;
 
+
+	GPUMemory<uint32_t> m_volume_training_shuffled_indices;
+	uint64_t m_volume_training_epoch_offset = 0;
+        uint32_t m_volume_training_epoch = 0;
 };
 
 } // namespace ngp
