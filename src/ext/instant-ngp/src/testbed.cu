@@ -563,9 +563,9 @@ void Testbed::reset_camera() {
 
 	m_camera = m_default_camera;
 	m_camera[3] -= m_scale * view_dir();
-
-	m_smoothed_camera = m_camera;
-	m_sun_dir = normalize(vec3(1.0f));
+        
+        m_smoothed_camera = m_camera;
+        m_sun_dir = normalize(vec3(1.0f));
 
 	reset_accumulation();
 }
@@ -3944,6 +3944,84 @@ void Testbed::update_vr_performance_settings() {
 		m_render_transparency_as_checkerboard = false;
 	}
 #endif // NGP_GUI
+}
+
+bool Testbed::validation_test()
+{
+	try {
+		while (true) {
+			(*m_task_queue.tryPop())();
+		}
+	} catch (const SharedQueueEmptyException&) {}
+
+	if(!m_network)
+	{
+            throw std::runtime_error{"No network loaded!"};
+	}
+
+	if(m_n_volume_validation_samples == 0)
+	{
+            throw std::runtime_error{"No validation data available..."};
+	}
+
+
+	cudaStream_t stream = m_stream.get();
+
+	const uint64_t n_elements = m_n_volume_validation_samples;
+
+
+	// Process in batches to handle validation, must be multiple of BATCH_SIZE (256)
+	const uint32_t max_batch_size = 1 << 20;
+
+
+	// Allocate buffer for squared errors
+	GPUMemory<float> squared_errors(n_elements);
+
+
+	GPUMemory<float> predictions(max_batch_size * N_VOLUME_TARGET_DIMS);
+
+	const uint32_t n_batches =
+            (uint32_t)tcnn::div_round_up(n_elements, (uint64_t)max_batch_size);
+
+	for(uint32_t batch_idx = 0; batch_idx < n_batches; ++batch_idx)
+	{
+		uint64_t offset = (uint64_t)batch_idx * max_batch_size;
+
+
+		uint32_t batch_size = (uint32_t)std::min((uint64_t)max_batch_size, n_elements - offset);
+		batch_size = (batch_size / tcnn::BATCH_SIZE_GRANULARITY) *
+                             tcnn::BATCH_SIZE_GRANULARITY;
+
+
+		if(batch_size = 0)
+		{
+                    continue;
+		}
+
+		// Create GPU matrices for validaiton data
+		GPUMatrix<float> input_matrix(
+			m_volume_validation_inputs.data() + offset * N_VOLUME_INPUT_DIMS,
+			N_VOLUME_INPUT_DIMS,
+			batch_size
+		);
+
+		GPUMatrix<float> target_matrix(
+			m_volume_validation_targets.data() + offset * N_VOLUME_TARGET_DIMS,
+			N_VOLUME_TARGET_DIMS,
+			batch_size
+		);
+
+		GPUMatrix<float> predictions_matrix(predictions.data(),
+				N_VOLUME_TARGET_DIMS, batch_size);
+
+		m_network->inference(stream, input_matrix, predictions_matrix, true);
+
+
+	}
+
+	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
+
+
 }
 
 bool Testbed::frame() {

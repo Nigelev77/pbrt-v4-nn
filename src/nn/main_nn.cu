@@ -155,6 +155,8 @@ struct __attribute__((packed)) BinaryTrainingSample
     float tMax;
 };
 
+
+
 void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 {
     std::ifstream f{native_string(path), std::ios::in | std::ios::out | std::ios::binary };
@@ -165,14 +167,6 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     f.clear();
     f.seekg(0, std::ios::beg);
 
-
-    // std::string header;
-    // std::getline(f, header);
-    // auto samplesPos = header.find("samples=");
-    // if(samplesPos != header.npos)
-    // {
-    //     testbed.m_n_volume_training_samples = std::min(std::stoul(header.substr(samplesPos + 8)), (uint64_t)UINT32_MAX);
-    // }
     uint64_t totalCount = 0;
     f.read(reinterpret_cast<char *>(&totalCount), sizeof(uint64_t));
 
@@ -455,9 +449,6 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
 
 void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
 {
-    // TODO(custom-dataset-export): before calling this, generate per-ray dumps containing
-    // origin, direction, optional metadata, and supervised radiance. The instant-ngp loader
-    // comments describe how to serialize those into rays_*.dat plus float radiance blocks.
     std::vector<fs::path> paths;
     if(data_path.is_directory())
     {
@@ -478,177 +469,15 @@ void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
         throw std::runtime_error{"Nerf data path must be text or directory"};
     }
 
-    // TODO(custom-nngp-hookup): reuse the instant-ngp load_nerf to ingest your prepared files,
-    // ensuring n_extra_learnable_dims and has_rays are set so the training loop sees the
-    // per-ray metadata/radiance pairs.
-    // TODO(nerfdataset-plumbing): actually instantiate a NerfDataset, resize xforms/metadata/pixelmemory,
-    // and call set_training_image with the radiance buffers + ray pointers produced above.
-    // TODO(frame-shape): for each ray chunk, set metadata[i].resolution = {n_rays, 1} (or W,H) so
-    // batching knows the number of samples, and mark image_type = EImageDataType::Float, is_hdr=true.
-
-
-    // std::vector<LoadedRayInfo> frameRayData;
-    // std::vector<TrainingDataSample> trainingDataSamples;
-
     //TODO: Consider switching to outputting as jsons instead
     testbed.m_nerf.training.dataset.has_rays = true;
     // nerf_data.has_rays = true;
     // TODO: Extend this so it can take multiple files at once
     for(size_t i = 0; i < paths.size(); ++i)
     {
-        // int added_frames = load_ray_data_from_file(frameRayData, paths[i]);
-
         load_training_to_testbed(testbed, paths[i]);
-
-        // TODO(extra-metadata-pack): if pixelIdx/sampleIdx/finalDepth (or other ray tags) are required at
-        // train time, either extend the Ray struct to store them or upload parallel buffers and record
-        // pointers in TrainingImageMetadata so batch generation can recover them.
-
-
-
-        //TODO: Test out both having pixelidx/sampleIdx/finalDepth in either extending the Ray, or
-        // record pointers in TrainingImageMetadata. For now I will just add it to TrainingImageMetadata struct
-
-
     }
     return;
-    // // Now loaded all the frame data, now time to send it to NerfDataset
-    // int frameCount = frameRayData.size();
-    // // Create dataset with aabb_scale=1 and is_hdr=true
-    // nerf_data = create_empty_nerf_dataset(frameCount, 1, true);
-
-    // // Override default scale/offset to ensure raw PBRT rays are not transformed
-    // // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
-    
-    // // Calculate scene bounding box to normalize rays
-    // vec3 min_bound = vec3(1e30f);
-    // vec3 max_bound = vec3(-1e30f);
-
-    // for (const auto &frame : frameRayData) {
-    //     for (int i = 0; i < frame.res.x; ++i) {
-    //         const auto &ray = frame.rays[i];
-    //         min_bound = min(min_bound, ray.o);
-    //         max_bound = max(max_bound, ray.o);
-    //     }
-    // }
-
-        // Now loaded all the frame data, now time to send it to NerfDataset
-//     int trainingSampleCnt = trainingDataSamples.size();
-//     // Create dataset with aabb_scale=1 and is_hdr=true
-//     nerf_data = create_empty_nerf_dataset(trainingSampleCnt, 1, true);
-    
-//     // Override default scale/offset to ensure raw PBRT rays are not transformed
-//     // (User must ensure rays are within [0,1] or [0, aabb_scale] if aabb_scale > 1)
-    
-//     // Calculate scene bounding box to normalize rays
-//     vec3 min_bound = vec3(1e30f);
-//     vec3 max_bound = vec3(-1e30f);
-
-//     for (const auto &trainingDataSample : trainingDataSamples) {
-//         for (int i = 0; i < trainingDataSample.res.x; ++i) {
-//             const auto &ray = trainingDataSample.rays[i];
-//             min_bound = min(min_bound, ray.o);
-//             max_bound = max(max_bound, ray.o);
-//         }
-//     }
-
-
-//     tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
-//                  << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
-//                  << max_bound.z << "]";
-
-//     // Compute scale and offset to fit in [0.05, 0.95]
-//     vec3 size = max_bound - min_bound;
-//     float max_dim = std::max({size.x, size.y, size.z});
-//     if (max_dim == 0)
-//         max_dim = 1.0f;
-//     float scale = 0.9f / max_dim;
-//     vec3 center = (min_bound + max_bound) * 0.5f;
-//     vec3 offset = vec3(0.5f) - center * scale;
-
-//     tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
-//                  << ", " << offset.y << ", " << offset.z << "]";
-
-//     // Apply normalization
-//     for (auto &trainingDataSample : trainingDataSamples) {
-//         for (int i = 0; i < trainingDataSample.res.x; ++i) {
-//             auto &ray = trainingDataSample.rays[i];
-//             ray.o = ray.o * scale + offset;
-//         }
-//     }
-
-//     nerf_data.scale = scale;
-//     nerf_data.offset = offset;
-    
-//     // nerf_data.n_extra_learnable_dims = 2;
-//     //TODO: Consider if I want to also add in the sample and depth index data, for now just set to 0
-//     nerf_data.n_extra_learnable_dims = 0;
-//     nerf_data.has_rays = true;
-//     // meta_extras.sample_indices.resize(trainingSampleCnt);
-//     // meta_extras.final_depths.resize(trainingSampleCnt);
-//     uint32_t frameIdx = 0;
-//     for(auto& trainingDataSample : trainingDataSamples)
-//     {
-//         int rayCount = trainingDataSample.res.x;
-
-//         for(int rIdx = 0; rIdx < rayCount; ++rIdx)
-//         {
-//             Ray& ray = trainingDataSample.rays[rIdx];
-//             ray.d = normalize(ray.d);
-//             // nerf_data.nerf_ray_to_ngp(ray);
-//         }
-
-//         //TODO(trainingDataUpload): Find a way to also upload the Transmission to a separate or same I-NGP network
-//         //from trainingDataSample.T
-//         nerf_data.set_training_image(frameIdx, 
-//             trainingDataSample.res, 
-//             trainingDataSample.L_physical, 
-//             nullptr, 
-//             1.0f, 
-//             false, 
-//             EImageDataType::Float, 
-//             EDepthDataType::Float,
-//             0.f,
-//             false,
-//             false,
-//             0,            
-//             trainingDataSample.rays
-//         );
-
-
-        
-//         // INFO: Add on extra metadata information
-//         // load_metadata(nerf_data, meta_extras);
-
-//         //TODO: Check if there are any other fields that I need to set for the metadata
-//         nerf_data.metadata[frameIdx].image_data_type = EImageDataType::Float;
-//         nerf_data.xforms[frameIdx].start = mat4x3::identity();
-//         nerf_data.xforms[frameIdx].end = mat4x3::identity();
-//         nerf_data.metadata[frameIdx].lens = {};
-//         nerf_data.metadata[frameIdx].resolution = trainingDataSample.res;
-//         nerf_data.metadata[frameIdx].principal_point = vec2(0.5f);
-//         nerf_data.metadata[frameIdx].focal_length = vec2(1000.f);
-//         nerf_data.metadata[frameIdx].rolling_shutter = vec4(0.f);
-//         nerf_data.metadata[frameIdx].light_dir = vec3(0.f);
-        
-//         nerf_data.update_metadata(frameIdx, frameIdx + 1);
-
-//         frameIdx++;
-
-// #ifndef _DEBUG
-//         // delete[] frame.rays;
-//         // delete[] frame.sampleIdx;
-//         // delete[] frame.finalDepths;
-//         // delete[] frame.rgbas;
-//         delete[] trainingDataSample.rays;
-//         delete[] trainingDataSample.L_physical;
-//         delete[] trainingDataSample.T;
-// #endif
-//     }
-
-    
-
-
 }
 
 
@@ -687,6 +516,47 @@ int main(int argc, char** argv)
 
     ValueFlag<std::string> data_flag{
         parser, "TRAINING_DATA_PATH", "Path to training data binary file", {"data-path"}};
+
+    ValueFlag<int> train_iterations
+    {
+        parser,
+        "TRAINING_ITERATIONS",
+        "How many iterations to train for (default 20K)",
+        {
+            "n-train-iter"
+        }
+    };
+
+    Flag validation_flag
+    {
+        parser,
+        "SHOULD_VALIDATE",
+        "Should do validation testing afterwards",
+        {
+            "validate"
+        }
+    };
+
+    Flag test_flag
+    {
+        parser,
+        "SHOULD DO TESTING",
+        "Should do testing",
+        {
+            "test"
+        }
+    };
+
+    ValueFlag<std::string> save_path_flag
+    {
+        parser,
+        "MODEL_SAVE_PATH",
+        "Where to save the model at the end of training",
+        {
+            "save-model-path"
+        }
+    };
+
 
     // Flag no_gui_flag{
 	// 	parser,
@@ -893,6 +763,8 @@ int main(int argc, char** argv)
     // Training loop
     uint64_t curr_frame = 0;
     constexpr uint64_t EPOCH_LOG_INTERVAL = 100;
+    constexpr uint64_t DEFAULT_MAX_ITERATIONS = 20000;
+    uint64_t max_iterations = train_iterations ? get(train_iterations) : DEFAULT_MAX_ITERATIONS;
     while (testbed.frame()) {
         if (!(curr_frame % EPOCH_LOG_INTERVAL)) {
             tlog::info() << "Done " << curr_frame << " frames\n";
@@ -903,19 +775,35 @@ int main(int argc, char** argv)
         curr_frame++;
         
         
-        if(curr_frame >= 20000)
+        if(curr_frame >= max_iterations)
         {
             break;
         }
         // The frame() function handles training steps if m_train is true.
     }
-    
-    
-    //For now, don't compress but include optimizer state
-    testbed.save_model("/workspace/pbrt-v4-nn/default_model.msgpack", true, false);
-    
-    
-    
+
+
+    if(save_path_flag)
+    {
+        //For now, don't compress but include optimizer state
+        const fs::path save_path = get(save_path_flag);
+        testbed.save_model(save_path, true, false);
+    }
+
+
+    //INFO: Do validation testing here
+
+    if(validation_flag)
+    {
+
+        //TODO: Consider freeing training data to free up space on the GPU
+
+
+        //Reset loss
+
+        testbed.m_loss_scalar.set(0);
+    }
+
     return 0;
 }
     

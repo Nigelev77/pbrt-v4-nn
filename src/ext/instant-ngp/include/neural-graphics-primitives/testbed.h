@@ -563,6 +563,7 @@ public:
 	void gather_histograms();
 	void draw_gui();
 	bool frame();
+	bool validation_test();
 	bool want_repl();
 	void load_image(const fs::path& data_path);
 	void load_exr_image(const fs::path& data_path);
