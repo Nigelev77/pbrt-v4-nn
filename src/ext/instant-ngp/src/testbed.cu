@@ -3979,19 +3979,20 @@ bool Testbed::validation_test()
 
 	const uint64_t n_elements = m_n_volume_validation_samples;
 
+	const uint32_t padded_output = m_network->padded_output_width();
 
 	// Process in batches to handle validation, must be multiple of BATCH_SIZE (256)
 	const uint32_t max_batch_size = 1 << 20;
 
 
 	// Allocate buffer for loss, kernel writes per-element values
-	GPUMemory<float> loss_values(max_batch_size * N_VOLUME_TARGET_DIMS);
+	GPUMemory<float> loss_values(max_batch_size * padded_output);
 		
 	// Predictions buffer
-	GPUMemory<network_precision_t> predictions(max_batch_size * N_VOLUME_TARGET_DIMS);
+	GPUMemory<network_precision_t> predictions(max_batch_size * padded_output);
 
 	// Dummy gradients buffer (requried by loss->eval but ignore for validation)
-	GPUMemory<network_precision_t> dummy_gradients(max_batch_size * N_VOLUME_TARGET_DIMS);
+	GPUMemory<network_precision_t> dummy_gradients(max_batch_size * padded_output);
 
 	const uint32_t n_batches =
             (uint32_t)tcnn::div_round_up(n_elements, (uint64_t)max_batch_size);
@@ -4021,13 +4022,13 @@ bool Testbed::validation_test()
 			N_VOLUME_TARGET_DIMS, batch_size);
 
 		GPUMatrix<network_precision_t> predictions_matrix(
-			predictions.data(), N_VOLUME_TARGET_DIMS, batch_size);
+			predictions.data(), padded_output, batch_size);
 
-		GPUMatrix<float> loss_values_matrix(loss_values.data(), N_VOLUME_TARGET_DIMS,
+		GPUMatrix<float> loss_values_matrix(loss_values.data(), padded_output,
 											batch_size);
 
 		GPUMatrix<network_precision_t> dummy_gradients_matrix(
-			dummy_gradients.data(), N_VOLUME_TARGET_DIMS, batch_size);
+			dummy_gradients.data(), padded_output, batch_size);
 
 		m_network->inference_mixed_precision(stream, input_matrix, predictions_matrix,
 												true);
@@ -4036,7 +4037,7 @@ bool Testbed::validation_test()
 							loss_values_matrix, dummy_gradients_matrix, nullptr);
 
 		float batch_loss =
-			reduce_sum(loss_values.data(), batch_size * N_VOLUME_TARGET_DIMS, stream);
+			reduce_sum(loss_values.data(), batch_size * padded_output, stream);
 
 		total_loss += batch_loss * (batch_size * N_VOLUME_TARGET_DIMS);
 		total_samples += batch_size;

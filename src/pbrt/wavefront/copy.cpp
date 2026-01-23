@@ -11,7 +11,7 @@
 #endif
 namespace pbrt
 {
-    constexpr uint64_t kMaxBytes = 32 * 1024ull * 1024ull * 1024ull;
+    constexpr uint64_t kMaxBytes = 20 * 1024ull * 1024ull * 1024ull;
     constexpr uint64_t kBinaryTrainingSampleSize = 76;
     constexpr uint64_t kMaxSamples = kMaxBytes / kBinaryTrainingSampleSize;
     constexpr bool optimized_output = false;

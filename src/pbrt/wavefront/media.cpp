@@ -258,11 +258,13 @@ namespace pbrt
             SampledSpectrum L_target_added = L;
             SampledSpectrum T_target = (beta_before == SampledSpectrum(0.f)) ? SampledSpectrum(0.f) : (beta / beta_before);
 
-            
-            
-            //TODO: add a field to convert to RGB as well
-            if(rgbColorSpace)
-            {
+            Float uLog = rng.Uniform<Float>();
+            constexpr Float logProbability = 0.9f;
+            int shouldLog = SampleDiscrete({logProbability, 1.f - logProbability}, uLog);
+
+
+            // TODO: add a field to convert to RGB as well
+            if (rgbColorSpace && shouldLog == 0) {
                 // RGB beta_rgb = beta.ToRGB(w.lambda, *rgbColorSpace);
                 // RGB beta_before_rgb = beta_before.ToRGB(w.lambda, *rgbColorSpace);
 

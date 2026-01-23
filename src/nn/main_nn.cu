@@ -731,7 +731,7 @@ void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
     // TODO: Extend this so it can take multiple files at once
     for(size_t i = 0; i < paths.size(); ++i)
     {
-        load_training_to_testbed(testbed, paths[i]);
+        load_dataset_to_testbed(testbed, paths[i], DatasetType::Training);
     }
     return;
 }
