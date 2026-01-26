@@ -3956,7 +3956,7 @@ void Testbed::update_vr_performance_settings() {
 #endif // NGP_GUI
 }
 
-bool Testbed::validation_test()
+Testbed::ValidationTestResults Testbed::validation_test()
 {
 	try {
 		while (true) {
@@ -4052,7 +4052,7 @@ bool Testbed::validation_test()
 					<< " dB"
 					<< " (n_samples: " << total_samples << ")";
 
-	return true;
+	return {mse, psnr};
 }
 
 bool Testbed::frame() {

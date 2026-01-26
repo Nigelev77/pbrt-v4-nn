@@ -563,7 +563,14 @@ public:
 	void gather_histograms();
 	void draw_gui();
 	bool frame();
-	bool validation_test();
+
+	struct ValidationTestResults
+	{
+		float mse;
+		float psnr;
+	};
+
+	ValidationTestResults validation_test();
 	bool want_repl();
 	void load_image(const fs::path& data_path);
 	void load_exr_image(const fs::path& data_path);
@@ -578,6 +585,8 @@ public:
 	void load_snapshot(nlohmann::json config);
 	void load_snapshot(const fs::path& path);
 	void load_snapshot(std::istream& stream, bool is_compressed = true);
+
+
 
 	void save_model(const fs::path& path, bool include_optimizer_state, bool compress);
 	void load_model(const fs::path& path);

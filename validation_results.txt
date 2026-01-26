@@ -1,0 +1,16 @@
+/workspace/pbrt-v4-nn/default_config.json,0.028842881
+/workspace/pbrt-v4-nn/default_config.json,0.028906023
+/workspace/pbrt-v4-nn/default_config.json,0.029028267
+/workspace/pbrt-v4-nn/default_nogradientclipping.json,0.045294784
+/workspace/pbrt-v4-nn/default_nogradientclipping.json,0.03000002
+/workspace/pbrt-v4-nn/default_nogradientclipping.json,0.045284964
+/workspace/pbrt-v4-nn/default_neurons64_layers2.json,0.03363005
+/workspace/pbrt-v4-nn/default_neurons64_layers2.json,0.03161594
+/workspace/pbrt-v4-nn/default_neurons64_layers2.json,0.030580562
+/workspace/pbrt-v4-nn/default_neurons64_layers3.json,0.029764226
+/workspace/pbrt-v4-nn/default_neurons64_layers3.json,0.029369304
+/workspace/pbrt-v4-nn/default_neurons64_layers3.json,0.030419342
+/workspace/pbrt-v4-nn/default_neurons64_layers4.json,0.02838825
+/workspace/pbrt-v4-nn/default_neurons64_layers4.json,0.032736912
+/workspace/pbrt-v4-nn/default_neurons64_layers4.json,0.03076006
+/workspace/pbrt-v4-nn/default_neurons32_layers3.json,0.030884707

@@ -61,6 +61,8 @@
 
 #include <neural-graphics-primitives/testbed.h>
 #include <neural-graphics-primitives/nerf_loader.h>
+#include <tiny-cuda-nn/loss.h>
+#include <tiny-cuda-nn/reduce_sum.h>
 #include <args/args.hxx>
 #include <tiny-cuda-nn/common.h>
 #include <memory>
@@ -736,6 +738,54 @@ void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
     return;
 }
 
+float evaluate_pure_loss(Testbed& testbed, const GPUMemory<float>& inputs, const GPUMemory<float>& targets, size_t n_samples) {
+    if(!testbed.m_network) return 0.0f;
+    
+    cudaStream_t stream = 0; 
+    const uint32_t padded_output = testbed.m_network->padded_output_width();
+    const uint32_t max_batch_size = 1 << 18; // 256k batch
+
+    GPUMemory<float> loss_values(max_batch_size * padded_output);
+    GPUMemory<network_precision_t> predictions(max_batch_size * padded_output);
+    GPUMemory<network_precision_t> dummy_gradients(max_batch_size * padded_output);
+
+    const uint32_t n_batches = (uint32_t)tcnn::div_round_up(n_samples, (uint64_t)max_batch_size);
+
+    float total_loss = 0.f;
+    uint64_t total_samples = 0;
+
+    for (uint32_t batch_idx = 0; batch_idx < n_batches; ++batch_idx) {
+        uint64_t offset = (uint64_t)batch_idx * max_batch_size;
+        uint32_t batch_size = (uint32_t)std::min((uint64_t)max_batch_size, n_samples - offset);
+        
+        // Ensure batch size is granularity aligned
+        batch_size = (batch_size / tcnn::BATCH_SIZE_GRANULARITY) * tcnn::BATCH_SIZE_GRANULARITY;
+
+        if (batch_size == 0) continue;
+
+        GPUMatrix<float> input_matrix((float*)inputs.data() + offset * N_VOLUME_INPUT_DIMS, N_VOLUME_INPUT_DIMS, batch_size);
+        GPUMatrix<float> target_matrix((float*)targets.data() + offset * N_VOLUME_TARGET_DIMS, N_VOLUME_TARGET_DIMS, batch_size);
+        
+        GPUMatrix<network_precision_t> predictions_matrix(predictions.data(), padded_output, batch_size);
+        GPUMatrix<float> loss_values_matrix(loss_values.data(), padded_output, batch_size);
+        GPUMatrix<network_precision_t> dummy_gradients_matrix(dummy_gradients.data(), padded_output, batch_size);
+
+        testbed.m_network->inference_mixed_precision(stream, input_matrix, predictions_matrix, true);
+        testbed.m_loss->evaluate(stream, 1.f, predictions_matrix, target_matrix, loss_values_matrix, dummy_gradients_matrix, nullptr);
+
+        float batch_loss = tcnn::reduce_sum(loss_values.data(), batch_size * padded_output, stream);
+        
+        total_loss += batch_loss * (batch_size * N_VOLUME_TARGET_DIMS);
+        total_samples += batch_size;
+    }
+
+    CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+    if (total_samples == 0) return 0.0f;
+    
+    // MSE calculation
+    return total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
+}
+
 
 int main(int argc, char** argv)
 {
@@ -825,8 +875,25 @@ int main(int argc, char** argv)
         }
     };
 
+    ValueFlag<std::string> model_msgpack_flag
+    {
+        parser,
+        "MODEL_MSGPACK_PATH",
+        "Path to load json config file",
+        {
+            "model-msgpack-path"
+        }
+    };
 
-
+    ValueFlag<std::string> validation_mse_results_flag
+    {
+        parser,
+        "VALIDATION_RESULTS_FILE_PATH",
+        "Path to save validation mse results",
+        {
+            "validation-mse-results-path"
+        }
+    };
 
 
     // Flag no_gui_flag{
@@ -995,8 +1062,19 @@ int main(int argc, char** argv)
         CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
         
         tlog::info() << "setting network json...\n";
-        testbed.reload_network_from_json(config);
-        
+        if(model_msgpack_flag)
+        {
+            const fs::path config_path = get(model_msgpack_flag);
+            testbed.reload_network_from_file(config_path);
+            tlog::info() << "Loaded from file " << config_path;
+
+        }
+        else
+        {
+            testbed.reload_network_from_json(config);
+            tlog::info() << "Loaded from builtin config\n";
+        }
+
         // Disable JIT fusion to avoid CUDA_ERROR_ILLEGAL_ADDRESS during cuModuleLoadDataEx
         // This is a workaround for a potential driver/PTX compatibility issue
         testbed.set_jit_fusion(false);
@@ -1037,15 +1115,26 @@ int main(int argc, char** argv)
     constexpr uint64_t DEFAULT_MAX_ITERATIONS = 20000;
     uint64_t max_iterations = train_epoch_flag ? get(train_epoch_flag) : DEFAULT_MAX_ITERATIONS;
     uint32_t &curr_epoch = testbed.m_volume_training_epoch;
+    uint32_t last_epoch = curr_epoch;
     while (testbed.frame()) {
-        if (!(curr_frame % EPOCH_LOG_INTERVAL)) {
+        if (!(curr_frame % EPOCH_LOG_INTERVAL) || last_epoch != curr_epoch) {
+
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
             << " loss=" << testbed.m_loss_scalar.val()
             << " ema loss=" << testbed.m_loss_scalar.ema_val();
+            if(last_epoch != curr_epoch)
+            {
+                size_t n_check_samples = std::min((size_t)testbed.m_n_volume_training_samples, (size_t)(1 << 20)); // Check ~1M samples max
+                float pure_loss = evaluate_pure_loss(testbed, testbed.m_volume_training_inputs, testbed.m_volume_training_targets, n_check_samples);
+                tlog::debug() << "pure loss = " << pure_loss;
+                last_epoch = curr_epoch;
+            }
         }
         curr_frame++;
         
+
+
         
         if(curr_epoch >= max_iterations)
         {
@@ -1086,7 +1175,18 @@ int main(int argc, char** argv)
         load_dataset_to_testbed(testbed, validation_data_path, DatasetType::Validation);
 
         testbed.m_train = false;
-        testbed.validation_test();
+        Testbed::ValidationTestResults res = testbed.validation_test();
+
+        if(validation_mse_results_flag && model_msgpack_flag)
+        {
+            const fs::path validation_mse_path = get(validation_mse_results_flag);
+            const fs::path model_msgpack_path = get(model_msgpack_flag);
+            std::ofstream mseFile{native_string(validation_mse_path),
+                                  std::ios::out | std::ios::app};
+            std::string formattedStr =
+                fmt::format("{},{},{},{}\n", native_string(model_msgpack_path), res.mse, testbed.m_loss_scalar.val(), testbed.m_loss_scalar.ema_val());
+            mseFile.write(formattedStr.c_str(), formattedStr.length());
+        }
     }
 
     return 0;
