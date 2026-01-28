@@ -1184,7 +1184,7 @@ int main(int argc, char** argv)
             std::ofstream mseFile{native_string(validation_mse_path),
                                   std::ios::out | std::ios::app};
             std::string formattedStr =
-                fmt::format("{},{},{},{}\n", native_string(model_msgpack_path), res.mse, testbed.m_loss_scalar.val(), testbed.m_loss_scalar.ema_val());
+                fmt::format("{},mse:{},loss:{},ema:{}\n", native_string(model_msgpack_path), res.mse, testbed.m_loss_scalar.val(), testbed.m_loss_scalar.ema_val());
             mseFile.write(formattedStr.c_str(), formattedStr.length());
         }
     }
