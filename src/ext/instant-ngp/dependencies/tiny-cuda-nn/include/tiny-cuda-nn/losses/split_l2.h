@@ -51,7 +51,8 @@ namespace tcnn
         const uint32_t target_idx = inter_elem_idx * dims + intra_elem_idx;
         const uint32_t n_total = n_elements / stride * dims;
         const float target_val = targets[target_idx];
-        const float prediction_raw = (float)predictions[i];
+        float prediction_raw = (float)predictions[i];
+        prediction_raw = fminf(fmaxf(prediction_raw, -50.0f), 50.0f);
         const float pdf = data_pdf ? data_pdf[target_idx] : 1;
 
         

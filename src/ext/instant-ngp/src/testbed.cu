@@ -90,6 +90,40 @@ __device__ uint32_t pcg_hash(uint32_t input)
     return (word >> 22u) ^ word;
 }
 
+__global__ void gather_volume_random_batch_kernel(
+const uint32_t n_samples_total,
+	const uint32_t batch_size,
+	const uint32_t n_input_dims, 
+	const uint32_t n_output_dims,
+	const float* __restrict__ all_inputs,
+	const float* __restrict__ all_outputs,
+	float* __restrict__ batch_inputs,
+	float* __restrict__ batch_outputs,
+	const uint32_t seed
+) 
+{
+	// Calculate thread index
+	uint32_t i = threadIdx.x + blockDim.x * blockIdx.x;
+	if(i >= batch_size) return;
+
+	// Get random index from full dataset
+	uint32_t hash = pcg_hash(i + seed * 782367U);
+	uint32_t randomIdx = hash % n_samples_total;
+	
+	// Copy over inputs of randomIdx to batch vector
+	for(uint32_t d = 0; d < n_input_dims; ++d)
+	{
+		batch_inputs[i * n_input_dims + d] = all_inputs[randomIdx * n_input_dims + d];
+	}
+
+	// Copy over outputs of randomIdx to batch vector
+	for(uint32_t d = 0; d < n_output_dims; ++d)
+	{
+		batch_outputs[i * n_output_dims + d] = all_outputs[randomIdx * n_output_dims + d];
+	}
+}
+
+
 __global__ void gather_volume_training_batch_kernel(
 	const uint32_t batch_size,
 	const uint32_t n_input_dims, 
@@ -3973,7 +4007,7 @@ Testbed::ValidationTestResults Testbed::validation_test()
 	{
             throw std::runtime_error{"No validation data available..."};
 	}
-
+	tlog::info() << "Performing Validation testing...";
 
 	cudaStream_t stream = m_stream.get();
 
@@ -4046,11 +4080,14 @@ Testbed::ValidationTestResults Testbed::validation_test()
 	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
 
 	float mse = total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
-	float psnr = -10.f * std::log10(std::max(mse, 1e-10f));
+	// float psnr = -10.f * std::log10(std::max(mse, 1e-10f));
+	const float MAX_VAL = std::log(1000.f + 1);
+	float rmse = std::sqrt(std::max(mse, 1e-10f));
+	float psnr = 20 * std::log10(MAX_VAL / rmse);
 
 	tlog::info() << "Validation Results - MSE: " << mse << ", PNSR: " << psnr
-					<< " dB"
-					<< " (n_samples: " << total_samples << ")";
+				<< " dB"
+				<< " (n_samples: " << total_samples << ")";
 
 	return {mse, psnr};
 }
@@ -4742,7 +4779,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 
 
 	// Reshuffle indices at start of epoch
-	if(m_volume_training_shuffled_indices.size() != n_samples || m_volume_training_epoch_offset + actual_batch_size > n_samples)
+	if(m_perform_epoch_based_training && (m_volume_training_shuffled_indices.size() != n_samples || m_volume_training_epoch_offset + actual_batch_size > n_samples))
 	{
 		if(m_volume_training_shuffled_indices.size() != n_samples)
 		{
@@ -4778,18 +4815,31 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 	uint32_t n_threads = 256;
 	uint32_t n_blocks = div_round_up((uint32_t)actual_batch_size, n_threads);
 
-	gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
-		(uint32_t)actual_batch_size, 
-		N_VOLUME_INPUT_DIMS,
-		N_VOLUME_TARGET_DIMS, 
-		m_volume_training_inputs.data(),
-		m_volume_training_targets.data(),
-		m_volume_training_shuffled_indices.data() + m_volume_training_epoch_offset, 
-		m_volume_batch_inputs.data(),
-		m_volume_batch_targets.data()
-	);
+	if(m_perform_epoch_based_training)
+	{
 
-	m_volume_training_epoch_offset += actual_batch_size;
+		gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
+			(uint32_t)actual_batch_size, 
+			N_VOLUME_INPUT_DIMS,
+			N_VOLUME_TARGET_DIMS, 
+			m_volume_training_inputs.data(),
+			m_volume_training_targets.data(),
+			m_volume_training_shuffled_indices.data() + m_volume_training_epoch_offset, 
+			m_volume_batch_inputs.data(),
+			m_volume_batch_targets.data()
+		);
+
+		m_volume_training_epoch_offset += actual_batch_size;
+	}
+	else
+	{
+		gather_volume_random_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
+			(uint32_t)m_n_volume_training_samples, actual_batch_size, N_VOLUME_INPUT_DIMS,
+			N_VOLUME_TARGET_DIMS, m_volume_training_inputs.data(),
+			m_volume_training_targets.data(), m_volume_batch_inputs.data(),
+			m_volume_batch_targets.data(), m_training_step);
+	}
+
 	return;
 }
 

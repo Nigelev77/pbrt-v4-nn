@@ -74,6 +74,7 @@
 #include <fstream>
 #include <filesystem/directory.h>
 #include <random>
+#include <numeric>
 using namespace tcnn;
 using namespace args;
 using namespace ngp;
@@ -164,6 +165,241 @@ enum class DatasetType
     Validation,
     Test
 };
+
+void load_dataset_to_testbed_fixedsize(Testbed& testbed, const fs::path& path, DatasetType dataset_type, uint64_t sampleCnt)
+{
+    std::ifstream f{native_string(path), std::ios::in | std::ios::out | std::ios::binary };
+    if(!f.is_open())
+        throw std::runtime_error("Failed to open file");
+
+    f.clear();
+    f.seekg(0, std::ios::beg);
+
+    uint64_t totalCount = 0;
+    f.read(reinterpret_cast<char *>(&totalCount), sizeof(uint64_t));
+
+    uint64_t sampleCount = std::min(totalCount, (uint64_t)UINT32_MAX);
+    sampleCount = std::min(sampleCount, sampleCnt);
+
+    tlog::info() << "Loading " << sampleCount << " samples as " 
+                    << (dataset_type == DatasetType::Training ? "training" : 
+                        dataset_type == DatasetType::Validation ? "validation" : "test") 
+                    << " data from " << path.str();
+
+    float **input_cpu_ptr;
+    float **target_cpu_ptr;
+    uint64_t* n_samples_ptr;
+    GPUMemory<float>* input_gpu_ptr;
+    GPUMemory<float> *target_gpu_ptr;
+
+    switch(dataset_type) {
+        case DatasetType::Training:
+            input_cpu_ptr = &testbed.m_volume_training_inputs_cpu;
+            target_cpu_ptr = &testbed.m_volume_training_targets_cpu;
+            n_samples_ptr = &testbed.m_n_volume_training_samples;
+            input_gpu_ptr = &testbed.m_volume_training_inputs;
+            target_gpu_ptr = &testbed.m_volume_training_targets;
+            break;
+        case DatasetType::Validation:
+            input_cpu_ptr = &testbed.m_volume_validation_inputs_cpu;
+            target_cpu_ptr = &testbed.m_volume_validation_targets_cpu;
+            n_samples_ptr = &testbed.m_n_volume_validation_samples;
+            input_gpu_ptr = &testbed.m_volume_validation_inputs;
+            target_gpu_ptr = &testbed.m_volume_validation_targets;
+            break;
+        case DatasetType::Test:
+            input_cpu_ptr = &testbed.m_volume_test_inputs_cpu;
+            target_cpu_ptr = &testbed.m_volume_test_targets_cpu;
+            n_samples_ptr = &testbed.m_n_volume_test_samples;
+            input_gpu_ptr = &testbed.m_volume_test_inputs;
+            target_gpu_ptr = &testbed.m_volume_test_targets;
+            break;
+        default:
+            break;
+        }
+
+    if(*input_cpu_ptr) {
+        delete[] *input_cpu_ptr;
+        *input_cpu_ptr = nullptr;
+    }
+    if(*target_cpu_ptr) {
+        delete[] *target_cpu_ptr;
+        *target_cpu_ptr = nullptr;
+    }
+
+    *n_samples_ptr = sampleCount;
+    *input_cpu_ptr = new float[sampleCount * N_VOLUME_INPUT_DIMS];
+    *target_cpu_ptr = new float[sampleCount * N_VOLUME_TARGET_DIMS];
+
+
+    vec3 min_bound = vec3(1e30f);
+    vec3 max_bound = vec3(-1e30f);
+    float minTMax = 1e30f;
+    float maxTMax = -1e30f;
+
+    auto& input_cpu_buffer = *input_cpu_ptr;
+    auto &target_cpu_buffer = *target_cpu_ptr;
+    std::vector<BinaryTrainingSample> binarySampleBuffer;
+    binarySampleBuffer.resize(sampleCount);
+
+    f.read(reinterpret_cast<char *>(binarySampleBuffer.data()),
+        sizeof(BinaryTrainingSample) * sampleCount);
+
+
+    if(dataset_type == DatasetType::Training)
+    {
+        std::random_device rd;
+        std::mt19937 shuffle_rng(rd());
+        // default_rng_t shuffle_rng{testbed.m_seed};
+        std::shuffle(binarySampleBuffer.begin(), binarySampleBuffer.end(), shuffle_rng);
+    }
+
+    bool normalize_data = (dataset_type == DatasetType::Training);
+
+    auto processSample = [&](const BinaryTrainingSample& bs, int idx
+        )
+        {
+            // Calculate scene BB to normalize rays
+            vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
+            
+            // Check for nans or infs
+            if(!std::isfinite(bs.o[0]) || !std::isfinite(bs.o[1]) || !std::isfinite(bs.o[2]))
+            {
+                tlog::warning() << "found Nan/Inf input ray position data";
+                rayO = vec3(0.f, 0.f, 0.f);
+            }
+            
+            constexpr float MAX_SCENE_DIST = 50.f;
+            float tMaxVal = std::min(bs.tMax, MAX_SCENE_DIST);
+            if(!std::isfinite(bs.tMax))
+            {
+                tlog::warning() << "found Nan/Inf input tmax data";
+                tMaxVal = 0.f;
+            }
+
+            if(normalize_data)
+            {
+                min_bound = min(min_bound, rayO);
+                max_bound = max(max_bound, rayO);
+                minTMax = min(minTMax, tMaxVal);
+                maxTMax = max(maxTMax, tMaxVal);
+            }
+
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
+            
+            // Normalize direction vector and transform from [-1,1] to [0,1] range
+            // SphericalHarmonics expects input in [0,1] and internally maps to [-1,1]
+            vec3 rayD = vec3(bs.d[0], bs.d[1], bs.d[2]);
+            float dirLen = std::sqrt(rayD.x * rayD.x + rayD.y * rayD.y + rayD.z * rayD.z);
+            if (dirLen > 1e-6f) {
+                rayD = rayD / dirLen;  // Normalize to unit length
+            }
+            if(!std::isfinite(rayD.x) || !std::isfinite(rayD.y) || !std::isfinite(rayD.z))
+            {
+                tlog::warning() << "found Nan/Inf input ray direction data";
+                rayD = vec3(0.f, 0.f, 0.f);
+            }
+            // Map from [-1, 1] to [0, 1] for SphericalHarmonics encoding
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x * 0.5f + 0.5f;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y * 0.5f + 0.5f;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z * 0.5f + 0.5f;
+            
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
+
+
+            //TODO: Check if i need to do some clamping here as well
+            constexpr float epsilon = 1e-6f;
+            constexpr float MAX_RADIANCE = 1000.f; //for now, just hard clamping this
+            for (int c = 0; c < 3; ++c) {
+                if(bs.beta_before_rgb[c] > epsilon)
+                {
+                    float val = std::max(0.f, bs.L_after_rgb[c]);
+                    float L_clamped = std::min(MAX_RADIANCE, val / bs.beta_before_rgb[c]);
+                    float L_log = std::log(L_clamped + 1.f);
+                    if(!std::isfinite(L_log))
+                    {
+                        tlog::warning() << "found Nan/Inf target radiance data";
+                        L_log = 0.f;
+                    }
+                    target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = L_log;
+                } else {
+                    target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
+                }
+            }
+
+            vec3 T_after = vec3(bs.T_after[0], bs.T_after[1], bs.T_after[2]);
+            if (!std::isfinite(bs.T_after[0]) || !std::isfinite(bs.T_after[1]) ||
+                !std::isfinite(bs.T_after[2])) {
+                tlog::warning() << "found Nan/Inf target T_after data";
+                T_after = vec3(0.f, 0.f, 0.f);
+            }
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, T_after[0]));
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, T_after[1]));
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, T_after[2]));
+    };
+
+    for(uint64_t i = 0; i < sampleCount; ++i)
+    {
+        processSample(binarySampleBuffer[i], i);
+    }
+
+    tlog::success() << "Read " << sampleCount << " samples";
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+    tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
+                 << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
+                 << max_bound.z << "]";
+
+    float scale, tMax_scale, tMax_offset;
+    vec3 offset;
+
+    // Compute and store normalization values
+
+    // Use stored normalization parameters from training data
+    scale = testbed.m_volume_training_inputs_scale;
+    offset = testbed.m_volume_training_inputs_offset;
+    tMax_scale = testbed.m_volume_training_inputs_tMax_scale;
+    tMax_offset = testbed.m_volume_training_inputs_tMax_offset;
+
+    if(scale == 0.0f) {
+        tlog::warning() << "Normalization parameters not set! Load training data first.";
+    }
+
+    // Apply normalization
+    for(uint64_t i = 0; i < sampleCount; ++i)
+    {
+        auto index = i * N_VOLUME_INPUT_DIMS;
+        
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = input_cpu_buffer[index + POS_OFFSET + dim];
+            input_cpu_buffer[index + POS_OFFSET + dim] = val * scale + offset[dim];
+        }
+
+        const float tMax_val = input_cpu_buffer[index + TMAX_OFFSET];
+        input_cpu_buffer[index + TMAX_OFFSET] = (tMax_val - tMax_offset) * tMax_scale;
+    }
+
+    const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS;
+    const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS;
+
+    auto &input_gpu_buffer = *input_gpu_ptr;
+    auto &target_gpu_buffer = *target_gpu_ptr;
+
+
+    input_gpu_buffer.resize(input_bytes_to_copy);
+    target_gpu_buffer.resize(target_bytes_to_copy);
+
+    input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
+    target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
+
+
+    CUDA_CHECK_THROW(cudaDeviceSynchronize());
+    tlog::success() << "Uploaded to GPU";
+}
 
 
 void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType dataset_type)
@@ -738,8 +974,8 @@ void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
     return;
 }
 
-float evaluate_pure_loss(Testbed& testbed, const GPUMemory<float>& inputs, const GPUMemory<float>& targets, size_t n_samples) {
-    if(!testbed.m_network) return 0.0f;
+Testbed::ValidationTestResults evaluate_pure_loss(Testbed& testbed, const GPUMemory<float>& inputs, const GPUMemory<float>& targets, size_t n_samples) {
+    if(!testbed.m_network) return {-1.f, -1.f};
     
     cudaStream_t stream = 0; 
     const uint32_t padded_output = testbed.m_network->padded_output_width();
@@ -780,10 +1016,13 @@ float evaluate_pure_loss(Testbed& testbed, const GPUMemory<float>& inputs, const
     }
 
     CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
-    if (total_samples == 0) return 0.0f;
-    
+    if (total_samples == 0) return {-1.f, -1.f};
+    Testbed::ValidationTestResults results;
+
+    float mse = total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
+	float psnr = -10.f * std::log10(std::max(mse, 1e-10f));
     // MSE calculation
-    return total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
+    return {mse, psnr};
 }
 
 
@@ -828,7 +1067,7 @@ int main(int argc, char** argv)
     {
         parser,
         "TRAINING_ITERATIONS",
-        "How many epochs to train for (default 20K)",
+        "How many epochs to train for (default 30k batch iterations)",
         {
             "n-epochs"
         }
@@ -895,6 +1134,15 @@ int main(int argc, char** argv)
         }
     };
 
+    Flag perform_epoch_based_training_flag
+    {
+        parser,
+        "EPOCH_BASED_TRAINING",
+        "Whether to use epoch based training (goes over entire dataset). Default is false",
+        {
+            "perform-epoch-based-training"
+        }
+    };
 
     // Flag no_gui_flag{
 	// 	parser,
@@ -948,9 +1196,7 @@ int main(int argc, char** argv)
 
 
     Testbed testbed;
-    
-
-
+    testbed.m_perform_epoch_based_training = perform_epoch_based_training_flag;
 
     // Initialize window early to establish GL context before CUDA operations
     tlog::info() << "Initializing window...";
@@ -1108,38 +1354,69 @@ int main(int argc, char** argv)
         // nerf_data.n_extra_learnable_dims = 0;
     }
 
+    constexpr uint64_t validation_ray_count = 1 << 20;
+    if(validation_flag)
+    {
+        if(!validation_path_flag)
+        {
+            throw std::runtime_error{"No validation file given..."};
+        }
+        const fs::path validation_data_path = get(validation_path_flag);
+        load_dataset_to_testbed_fixedsize(testbed, validation_data_path, DatasetType::Validation,
+            validation_ray_count);
+        
+    }
+
     // Window already initialized at startup
     // Training loop
     uint64_t curr_frame = 0;
-    constexpr uint64_t EPOCH_LOG_INTERVAL = 100;
-    constexpr uint64_t DEFAULT_MAX_ITERATIONS = 20000;
+    constexpr uint64_t BATCH_INTERVAL = 500;
+    constexpr uint64_t DEFAULT_MAX_ITERATIONS = 40000;
     uint64_t max_iterations = train_epoch_flag ? get(train_epoch_flag) : DEFAULT_MAX_ITERATIONS;
     uint32_t &curr_epoch = testbed.m_volume_training_epoch;
     uint32_t last_epoch = curr_epoch;
-    while (testbed.frame()) {
-        if (!(curr_frame % EPOCH_LOG_INTERVAL) || last_epoch != curr_epoch) {
+    std::vector<Testbed::ValidationTestResults> validation_loss_results;
 
+    auto last_time = std::chrono::steady_clock::now();
+    float total_training_time = 0.f;
+    while (testbed.frame()) {
+        auto now = std::chrono::steady_clock::now();
+        total_training_time += std::chrono::duration<float>(now - last_time).count();
+
+
+        if (!(curr_frame % BATCH_INTERVAL)) {
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
             << " loss=" << testbed.m_loss_scalar.val()
             << " ema loss=" << testbed.m_loss_scalar.ema_val();
-            if(last_epoch != curr_epoch)
-            {
-                size_t n_check_samples = std::min((size_t)testbed.m_n_volume_training_samples, (size_t)(1 << 20)); // Check ~1M samples max
-                float pure_loss = evaluate_pure_loss(testbed, testbed.m_volume_training_inputs, testbed.m_volume_training_targets, n_check_samples);
-                tlog::debug() << "pure loss = " << pure_loss;
-                last_epoch = curr_epoch;
-            }
+
+                // size_t n_check_samples = std::min((size_t)testbed.m_n_volume_training_samples, (size_t)(1 << 20)); // Check ~1M samples max
+                // Testbed::ValidationTestResults res = evaluate_pure_loss(testbed, testbed.m_volume_training_inputs, testbed.m_volume_training_targets, n_check_samples);
+                // training_loss_results.push_back(res);
+                // tlog::info() << "pure loss mse = " << res.mse << " psnr = " << res.psnr;
+                // last_epoch = curr_epoch;
+            testbed.m_train = false;
+
+            Testbed::ValidationTestResults res = testbed.validation_test();
+            validation_loss_results.push_back(res);
+            testbed.m_train = true;
         }
         curr_frame++;
         
 
 
-        
-        if(curr_epoch >= max_iterations)
+        if(testbed.m_perform_epoch_based_training)
+        {
+            if(curr_epoch >= max_iterations)
+            {
+                break;
+            }
+        }
+        else if(curr_frame > max_iterations)
         {
             break;
         }
+        last_time = now;
         // The frame() function handles training steps if m_train is true.
     }
 
@@ -1166,6 +1443,15 @@ int main(int argc, char** argv)
         testbed.m_volume_training_inputs_cpu = nullptr;
         testbed.m_volume_training_targets_cpu = nullptr;
 
+        testbed.m_volume_validation_inputs.free_memory();
+        testbed.m_volume_validation_targets.free_memory();
+
+        delete[] testbed.m_volume_validation_inputs_cpu;
+        delete[] testbed.m_volume_validation_targets_cpu;
+
+        testbed.m_volume_validation_inputs_cpu = nullptr;
+        testbed.m_volume_validation_targets_cpu = nullptr;
+
         if(!validation_path_flag)
         {
             throw std::runtime_error{"No validation file given..."};
@@ -1184,7 +1470,22 @@ int main(int argc, char** argv)
             std::ofstream mseFile{native_string(validation_mse_path),
                                   std::ios::out | std::ios::app};
             std::string formattedStr =
-                fmt::format("{},mse:{},loss:{},ema:{}\n", native_string(model_msgpack_path), res.mse, testbed.m_loss_scalar.val(), testbed.m_loss_scalar.ema_val());
+                fmt::format("{},mse:{},psnr:{} dB,loss:{},ema:{},total training time: {}", 
+                    native_string(model_msgpack_path), res.mse, res.psnr, 
+                    testbed.m_loss_scalar.val(), testbed.m_loss_scalar.ema_val(), total_training_time);
+            
+            formattedStr += ",mse_series:[";
+            for (size_t i = 0; i < validation_loss_results.size(); ++i) {
+                if (i > 0) formattedStr += ",";
+                formattedStr += fmt::format("{}", validation_loss_results[i].mse);
+            }
+            formattedStr += "],psnr_series:[";
+            for (size_t i = 0; i < validation_loss_results.size(); ++i) {
+                if (i > 0) formattedStr += ",";
+                formattedStr += fmt::format("{}", validation_loss_results[i].psnr);
+            }
+            formattedStr += "]\n";
+            
             mseFile.write(formattedStr.c_str(), formattedStr.length());
         }
     }
