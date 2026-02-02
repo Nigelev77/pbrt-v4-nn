@@ -1,0 +1,12 @@
+default_hashmapsize11.json
+default_hashmapsize9.json
+default_baseres32.json
+default_baseres24.json
+default_baseres16.json
+default_baseres8.json
+default_shdegree2.json
+default_shdegree4.json
+default_shdegree6.json
+default_nfreq4.json
+default_nfreq6.json
+default_nfreq8.json
