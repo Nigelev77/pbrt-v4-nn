@@ -35,6 +35,13 @@
 
 namespace tcnn {
 
+enum class ESplitLossMode : int {
+	SplitL2,
+	SplitL2Relative,
+	SplitL1
+};
+
+
 template <typename T>
 class Loss : public ObjectWithMutableHyperparams {
 public:
@@ -82,6 +89,8 @@ public:
 			"BODY"_a = body
 		);
 	}
+	
+	ESplitLossMode m_loss_mode = ESplitLossMode::SplitL2;
 };
 
 template <typename T>
@@ -93,5 +102,8 @@ std::unique_ptr<Loss<T>> default_loss(const std::string& name) {
 }
 
 std::vector<std::string> builtin_losses();
+
+
+
 
 }

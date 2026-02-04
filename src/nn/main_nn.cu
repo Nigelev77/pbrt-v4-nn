@@ -1144,6 +1144,26 @@ int main(int argc, char** argv)
         }
     };
 
+    Flag perform_l1_flag
+    {
+        parser,
+        "PERFORM_L2_LOSS",
+        "Whether to use L1 loss (default uses splitl2)",
+        {
+            "l1-loss"
+        }
+    };
+
+    Flag perform_l2_relative_flag
+    {
+        parser, 
+        "PERFORM_L2_RELATIVE_LOSS",
+        "Whether to use L2 relative loss (default uses splitl2)",
+        {
+            "l2-relative-loss"
+        }
+    };
+
     // Flag no_gui_flag{
 	// 	parser,
 	// 	"NO_GUI",
@@ -1379,6 +1399,16 @@ int main(int argc, char** argv)
 
     auto last_time = std::chrono::steady_clock::now();
     float total_training_time = 0.f;
+    if(perform_l1_flag)
+    {
+        testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL1;
+    }
+    else if(perform_l2_relative_flag)
+    {
+        testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2Relative;
+    }
+    ESplitLossMode originalLossMode = testbed.m_loss->m_loss_mode;
+
     while (testbed.frame()) {
         auto now = std::chrono::steady_clock::now();
         total_training_time += std::chrono::duration<float>(now - last_time).count();
@@ -1396,10 +1426,11 @@ int main(int argc, char** argv)
                 // tlog::info() << "pure loss mse = " << res.mse << " psnr = " << res.psnr;
                 // last_epoch = curr_epoch;
             testbed.m_train = false;
-
+            testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2;
             Testbed::ValidationTestResults res = testbed.validation_test();
             validation_loss_results.push_back(res);
             testbed.m_train = true;
+            testbed.m_loss->m_loss_mode = originalLossMode;
         }
         curr_frame++;
         
@@ -1432,7 +1463,7 @@ int main(int argc, char** argv)
 
     if(validation_flag)
     {
-
+        testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2;
         //TODO: Consider freeing training data to free up space on the GPU
         testbed.m_volume_training_inputs.free_memory();
         testbed.m_volume_training_targets.free_memory();

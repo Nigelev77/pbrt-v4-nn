@@ -79,6 +79,136 @@ namespace tcnn
         gradients[i] = (T)(loss_scale * gradient / n_total);
     }
 
+
+    template<typename T>
+    __global__ void split_l1_loss(
+        const uint32_t n_elements, 
+        const uint32_t stride,
+        const uint32_t dims,
+        const uint32_t split_idx,
+        const float loss_scale,
+        const T* __restrict__ predictions,
+        const float* __restrict__ targets,
+        float* __restrict__ values,
+        T* __restrict__ gradients,
+        const float* __restrict__ data_pdf = nullptr
+    )
+    {
+        const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+        if(i >= n_elements) return;
+
+        const uint32_t intra_elem_idx = i % stride;
+        const uint32_t inter_elem_idx = i / stride;
+
+        if(intra_elem_idx >= dims)
+        {
+            values[i] = 0;
+            gradients[i] = 0;
+            return;
+        }
+
+        const uint32_t target_idx = inter_elem_idx * dims + intra_elem_idx;
+        const uint32_t n_total = n_elements / stride * dims;
+        const float target_val = targets[target_idx];
+        float prediction_raw = (float)predictions[i];
+        prediction_raw = fminf(fmaxf(prediction_raw, -50.0f), 50.0f);
+        const float pdf = data_pdf ? data_pdf[target_idx] : 1;
+
+        
+        float prediction_activated;
+        float dActivation_dRaw;
+        
+        if(intra_elem_idx <  split_idx)
+        {
+            // Apply ReLU since first 3 are the scattered radiance
+            prediction_activated = relu(prediction_raw);
+            dActivation_dRaw = prediction_raw > 0.f ? 1.f : 0.f;
+        } else {
+            // Apply sigmoid since last 3 are for the transmission
+            prediction_activated = sigmoid(prediction_raw);
+            dActivation_dRaw = sigmoid_derivative(prediction_activated);
+        }
+
+        const float difference = prediction_activated - target_val;
+        // values[i] = difference * difference / pdf / n_total;
+        values[i] = fabsf(difference) / pdf / n_total;
+
+        // float dL_dActivated = 2.f * difference / pdf;
+        float dL_dActivated = copysignf(1.f, difference) / pdf;
+        // float gradient = dL_dActivated * dActivation_dRaw;
+        float gradient = dL_dActivated * dActivation_dRaw;
+        
+
+        gradients[i] = (T)(loss_scale * gradient / n_total);
+    }
+    
+
+    template<typename T>
+    __global__ void split_relative_l2_loss(
+        const uint32_t n_elements, 
+        const uint32_t stride,
+        const uint32_t dims,
+        const uint32_t split_idx,
+        const float loss_scale,
+        const T* __restrict__ predictions,
+        const float* __restrict__ targets,
+        float* __restrict__ values,
+        T* __restrict__ gradients,
+        const float* __restrict__ data_pdf = nullptr
+    )
+    {
+        const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+        if(i >= n_elements) return;
+
+        const uint32_t intra_elem_idx = i % stride;
+        const uint32_t inter_elem_idx = i / stride;
+
+        if(intra_elem_idx >= dims)
+        {
+            values[i] = 0;
+            gradients[i] = 0;
+            return;
+        }
+
+        const uint32_t target_idx = inter_elem_idx * dims + intra_elem_idx;
+        const uint32_t n_total = n_elements / stride * dims;
+        const float target_val = targets[target_idx];
+        float prediction_raw = (float)predictions[i];
+        prediction_raw = fminf(fmaxf(prediction_raw, -50.0f), 50.0f);
+        const float pdf = data_pdf ? data_pdf[target_idx] : 1;
+
+        
+        float prediction_activated;
+        float dActivation_dRaw;
+        
+        if(intra_elem_idx <  split_idx)
+        {
+            // Apply ReLU since first 3 are the scattered radiance
+            prediction_activated = relu(prediction_raw);
+            dActivation_dRaw = prediction_raw > 0.f ? 1.f : 0.f;
+        } else {
+            // Apply sigmoid since last 3 are for the transmission
+            prediction_activated = sigmoid(prediction_raw);
+            dActivation_dRaw = sigmoid_derivative(prediction_activated);
+        }
+
+        const float prediction_sq_plus_epsilon =
+            prediction_activated * prediction_activated + 0.01f;
+        const float difference = prediction_activated - target_val;
+
+        float loss = difference * difference / prediction_sq_plus_epsilon;
+        values[i] = loss / pdf / n_total;
+
+        // float dL_dActivated = (2.f / prediction_sq_plus_epsilon) *
+                            //   (difference - prediction_activated * loss) / pdf;
+        float dL_dActivated = 2.f * difference / prediction_sq_plus_epsilon / pdf;
+        // float gradient = dL_dActivated * dActivation_dRaw;
+        float gradient = dL_dActivated * dActivation_dRaw;
+        
+
+        gradients[i] = (T)(loss_scale * gradient / n_total);
+    }
+    
     template<typename T>
     class SplitL2Loss : public Loss<T>
     {
@@ -106,8 +236,20 @@ namespace tcnn
                 CHECK_THROW(!data_pdf || data_pdf->m() == dims);
                 CHECK_THROW(m_split_idx <= dims);
 
+                auto kernel = split_l2_loss<T>;
+
+
+                switch(this->m_loss_mode)
+                {
+                    case ESplitLossMode::SplitL2: kernel = split_l2_loss<T>; break;
+                    case ESplitLossMode::SplitL1: kernel =split_l1_loss<T>; break;
+                    case ESplitLossMode::SplitL2Relative: kernel = split_relative_l2_loss<T>; break;
+                    default: break;
+                }
+
+                
                 linear_kernel(
-                    split_l2_loss<T>, 0, stream,
+                    *kernel, 0, stream,
                     prediction.n_elements(),
                     stride,
                     dims,
@@ -119,6 +261,7 @@ namespace tcnn
                     gradients.data(),
                     data_pdf ? data_pdf->data() : nullptr
                 );
+
             }
 
             void update_hyperparams(const json& params) override 
