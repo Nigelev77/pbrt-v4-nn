@@ -401,6 +401,35 @@ void load_dataset_to_testbed_fixedsize(Testbed& testbed, const fs::path& path, D
     tlog::success() << "Uploaded to GPU";
 }
 
+void load_datasets_to_testbed(Testbed& testbed, const std::vector<fs::path>& paths, DatasetType dataset_type)
+{
+    if(paths.empty()) return;
+
+    // Calculate total sample cnt first
+    uint64_t total_sample_cnt = 0;
+    std::vector<uint64_t> sample_cnts;
+    sample_cnts.reserve(paths.size());
+
+    for(const auto& path : paths)
+    {
+        std::ifstream f{native_string(path), std::ios::in | std::ios::out | std::ios::binary };
+        if(!f.is_open())
+            throw std::runtime_error("Failed to open file path" + path.str());
+        f.clear();
+        f.seekg(0, std::ios::beg);
+
+        uint64_t cnt = 0;
+        f.read(reinterpret_cast<char *>(&cnt), sizeof(uint64_t));
+
+        sample_cnts.push_back(cnt);
+        total_sample_cnt += cnt;
+    }
+
+    tlog::info() << "Loading " << paths.size()
+                 << " files. Total training samples: " << total_sample_cnt;
+
+    //TODO: Complete this if this is required
+}
 
 void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType dataset_type)
 {
@@ -462,11 +491,18 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
         delete[] *target_cpu_ptr;
         *target_cpu_ptr = nullptr;
     }
-
     *n_samples_ptr = sampleCount;
-    *input_cpu_ptr = new float[sampleCount * N_VOLUME_INPUT_DIMS];
-    *target_cpu_ptr = new float[sampleCount * N_VOLUME_TARGET_DIMS];
 
+    if(testbed.m_stream_training_data_from_CPU && dataset_type == DatasetType::Training)
+    {
+        const auto training_input_bytes_size = sampleCount * N_VOLUME_INPUT_DIMS * sizeof(float);
+        const auto training_target_bytes_size = sampleCount * N_VOLUME_TARGET_DIMS * sizeof(float);
+        CUDA_CHECK_THROW(cudaMallocHost((void **)input_cpu_ptr, training_input_bytes_size));
+        CUDA_CHECK_THROW(cudaMallocHost((void**)target_cpu_ptr, training_target_bytes_size));
+    } else {
+        *input_cpu_ptr = new float[sampleCount * N_VOLUME_INPUT_DIMS];
+        *target_cpu_ptr = new float[sampleCount * N_VOLUME_TARGET_DIMS];
+    }
 
     vec3 min_bound = vec3(1e30f);
     vec3 max_bound = vec3(-1e30f);
@@ -633,22 +669,58 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
         input_cpu_buffer[index + TMAX_OFFSET] = (tMax_val - tMax_offset) * tMax_scale;
     }
 
-    const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS;
-    const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS;
 
-    auto &input_gpu_buffer = *input_gpu_ptr;
-    auto &target_gpu_buffer = *target_gpu_ptr;
+    if(testbed.m_stream_training_data_from_CPU && dataset_type == DatasetType::Training)
+    {
+        const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS * sizeof(float);
+        const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS * sizeof(float);
 
+        size_t free_mem, total_mem;
+        cudaMemGetInfo(&free_mem, &total_mem);
+        bool space_in_vram = (input_bytes_to_copy + target_bytes_to_copy) < (free_mem - 4ULL * 1024 * 1024 * 1024);
 
-    input_gpu_buffer.resize(input_bytes_to_copy);
-    target_gpu_buffer.resize(target_bytes_to_copy);
-
-    input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
-    target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
-
-
-    CUDA_CHECK_THROW(cudaDeviceSynchronize());
-    tlog::success() << "Uploaded to GPU";
+        if(space_in_vram)
+        {
+            auto &input_gpu_buffer = *input_gpu_ptr;
+            auto &target_gpu_buffer = *target_gpu_ptr;
+        
+        
+            input_gpu_buffer.resize(input_bytes_to_copy);
+            target_gpu_buffer.resize(target_bytes_to_copy);
+            
+            input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
+            target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
+            
+            
+            CUDA_CHECK_THROW(cudaDeviceSynchronize());
+            tlog::success() << "Uploaded to GPU";
+        }
+        else
+        {
+            tlog::info() << "Training data too large for VRAM ( " << (input_bytes_to_copy + target_bytes_to_copy)/1e9 
+                << " GB). Using CPU memory streaming instead.";
+            
+            input_gpu_ptr->resize(0);
+            target_gpu_ptr->resize(0);
+        }
+    } else {
+        const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS;
+        const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS;
+        
+        auto &input_gpu_buffer = *input_gpu_ptr;
+        auto &target_gpu_buffer = *target_gpu_ptr;
+        
+        
+        input_gpu_buffer.resize(input_bytes_to_copy);
+        target_gpu_buffer.resize(target_bytes_to_copy);
+        
+        input_gpu_buffer.copy_from_host(input_cpu_buffer, input_bytes_to_copy);
+        target_gpu_buffer.copy_from_host(target_cpu_buffer, target_bytes_to_copy);
+        
+        
+        CUDA_CHECK_THROW(cudaDeviceSynchronize());
+        tlog::success() << "Uploaded to GPU";
+    }
 }
 
 void load_training_to_testbed(Testbed& testbed, const fs::path& path)
@@ -675,17 +747,30 @@ void load_training_to_testbed(Testbed& testbed, const fs::path& path)
     testbed.m_n_volume_validation_samples = std::min(validationCount, (uint64_t)UINT32_MAX);
     testbed.m_n_volume_test_samples = std::min(testCount, (uint64_t)UINT32_MAX);
     
-
-    //TODO: Add functionality to extend this to also copy over any samples already loaded if i want to load multiple files
-    // Currently just allocates new float buffer
-    testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
-    testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
-
-    testbed.m_volume_validation_inputs_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_INPUT_DIMS];
-    testbed.m_volume_validation_targets_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_TARGET_DIMS];
-
-    testbed.m_volume_test_inputs_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_INPUT_DIMS];
-    testbed.m_volume_test_targets_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_TARGET_DIMS];
+    if(testbed.m_stream_training_data_from_CPU)
+    {
+        testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
+        
+        testbed.m_volume_validation_inputs_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_validation_targets_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_TARGET_DIMS];
+        
+        testbed.m_volume_test_inputs_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_test_targets_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_TARGET_DIMS];
+    }
+    else
+    {
+        //TODO: Add functionality to extend this to also copy over any samples already loaded if i want to load multiple files
+        // Currently just allocates new float buffer
+        testbed.m_volume_training_inputs_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_training_targets_cpu = new float[testbed.m_n_volume_training_samples * N_VOLUME_TARGET_DIMS];
+        
+        testbed.m_volume_validation_inputs_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_validation_targets_cpu = new float[testbed.m_n_volume_validation_samples * N_VOLUME_TARGET_DIMS];
+        
+        testbed.m_volume_test_inputs_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_INPUT_DIMS];
+        testbed.m_volume_test_targets_cpu = new float[testbed.m_n_volume_test_samples * N_VOLUME_TARGET_DIMS];
+    }
 
     const uint64_t trainEnd = trainCount;
     const uint64_t validationEnd = trainCount + validationCount;

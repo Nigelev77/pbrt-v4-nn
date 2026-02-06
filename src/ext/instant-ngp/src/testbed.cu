@@ -4734,6 +4734,12 @@ Testbed::~Testbed() {
 	if (m_render_window) {
 		destroy_window();
 	}
+
+	if(m_stream_training_data_from_CPU)
+	{
+		if(m_volume_training_inputs_cpu) cudaFreeHost(m_volume_training_inputs_cpu);
+		if(m_volume_training_targets_cpu) cudaFreeHost(m_volume_training_targets_cpu);
+	}
 }
 
 bool Testbed::clear_tmp_dir() {
@@ -4777,8 +4783,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 		m_volume_batch_targets.resize(actual_batch_size * N_VOLUME_TARGET_DIMS);
 	}
 
-
-	// Reshuffle indices at start of epoch
+        // Reshuffle indices at start of epoch
 	if(m_perform_epoch_based_training && (m_volume_training_shuffled_indices.size() != n_samples || m_volume_training_epoch_offset + actual_batch_size > n_samples))
 	{
 		if(m_volume_training_shuffled_indices.size() != n_samples)
@@ -4814,6 +4819,21 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 	// Launch Gather Kernel
 	uint32_t n_threads = 256;
 	uint32_t n_blocks = div_round_up((uint32_t)actual_batch_size, n_threads);
+
+	if(m_stream_training_data_from_CPU && m_volume_training_inputs.size() == 0)
+	{
+		const float* training_inputs_ptr = m_volume_training_inputs_cpu;
+		const float* training_targets_ptr = m_volume_training_targets_cpu;
+		gather_volume_random_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
+			(uint32_t)m_n_volume_training_samples, actual_batch_size, N_VOLUME_INPUT_DIMS,
+			N_VOLUME_TARGET_DIMS, training_inputs_ptr, training_targets_ptr, 
+			m_volume_batch_inputs.data(), m_volume_batch_targets.data(),
+			m_training_step
+		);
+
+		return;
+	}
+
 
 	if(m_perform_epoch_based_training)
 	{

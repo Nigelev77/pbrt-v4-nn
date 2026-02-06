@@ -1364,7 +1364,8 @@ public:
 	uint64_t m_volume_training_epoch_offset = 0;
         uint32_t m_volume_training_epoch = 0;
 
-        bool m_perform_epoch_based_training = false;
+	bool m_perform_epoch_based_training = false;
+	bool m_stream_training_data_from_CPU = false;
 };
 
 } // namespace ngp
