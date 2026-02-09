@@ -429,6 +429,191 @@ void load_datasets_to_testbed(Testbed& testbed, const std::vector<fs::path>& pat
                  << " files. Total training samples: " << total_sample_cnt;
 
     //TODO: Complete this if this is required
+
+
+
+    float **input_cpu_ptr;
+    float **target_cpu_ptr;
+    uint64_t* n_samples_ptr;
+    
+    input_cpu_ptr = &testbed.m_volume_training_inputs_cpu;
+    target_cpu_ptr = &testbed.m_volume_training_targets_cpu;
+    n_samples_ptr = &testbed.m_n_volume_training_samples;
+    
+    if(*input_cpu_ptr) {
+        if(testbed.m_stream_training_data_from_CPU)
+        {
+            cudaFreeHost(*input_cpu_ptr);
+            cudaFreeHost(*target_cpu_ptr);
+        }
+        else
+        {
+            delete[] *input_cpu_ptr;
+            delete[] *target_cpu_ptr;
+        }
+        *input_cpu_ptr = nullptr;
+        *target_cpu_ptr = nullptr;
+    }
+    
+    
+    
+    testbed.m_stream_training_data_from_CPU = true; // Just in case we do not have enough VRAM, enforcing this to be true here
+    *n_samples_ptr = total_sample_cnt;
+    const auto training_input_bytes_size = total_sample_cnt * N_VOLUME_INPUT_DIMS * sizeof(float);
+    const auto training_target_bytes_size = total_sample_cnt * N_VOLUME_TARGET_DIMS * sizeof(float);
+    CUDA_CHECK_THROW(cudaMallocHost((void **)input_cpu_ptr, training_input_bytes_size));
+    CUDA_CHECK_THROW(cudaMallocHost((void**)target_cpu_ptr, training_target_bytes_size));
+
+
+    vec3 min_bound = vec3(1e30f);
+    vec3 max_bound = vec3(-1e30f);
+    float minTMax = 1e30f;
+    float maxTMax = -1e30f;
+
+    auto& input_cpu_buffer = *input_cpu_ptr;
+    auto &target_cpu_buffer = *target_cpu_ptr;
+    uint64_t ptr = 0;
+    for (size_t i = 0; i < paths.size(); ++i) {
+        uint64_t fileCount = sample_cnts[i];
+        if(fileCount == 0) continue;
+
+        tlog::info() << "Processing file " << (i + 1) << "/" << paths.size() << ":" << paths[i].filename();
+
+        std::ifstream f{native_string(paths[i]), std::ios::in | std::ios::binary};
+        f.seekg(sizeof(uint64_t));
+
+        std::vector<BinaryTrainingSample> batch(fileCount);
+        f.read(reinterpret_cast<char*>(batch.data()), sizeof(BinaryTrainingSample) * fileCount);
+
+        std::random_device rd;
+        std::mt19937 shuffle_rng(rd());
+        // default_rng_t shuffle_rng{testbed.m_seed};
+        std::shuffle(batch.begin(), batch.end(), shuffle_rng);
+
+        for (uint64_t j = 0; j < fileCount; ++j)
+        {
+            const auto &bs = batch[j];
+            uint64_t idx = ptr + j;
+ // Calculate scene BB to normalize rays
+            vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
+
+            constexpr float MAX_SCENE_DIST = 50.f;
+            float tMaxVal = std::min(bs.tMax, MAX_SCENE_DIST);
+
+            min_bound = min(min_bound, rayO);
+            max_bound = max(max_bound, rayO);
+            minTMax = min(minTMax, tMaxVal);
+            maxTMax = max(maxTMax, tMaxVal);
+
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 0] = rayO.x;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 1] = rayO.y;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + POS_OFFSET + 2] = rayO.z;
+            
+            // Normalize direction vector and transform from [-1,1] to [0,1] range
+            // SphericalHarmonics expects input in [0,1] and internally maps to [-1,1]
+            vec3 rayD = vec3(bs.d[0], bs.d[1], bs.d[2]);
+            float dirLen = std::sqrt(rayD.x * rayD.x + rayD.y * rayD.y + rayD.z * rayD.z);
+            if (dirLen > 1e-6f) {
+                rayD = rayD / dirLen;  // Normalize to unit length
+            }
+            // Map from [-1, 1] to [0, 1] for SphericalHarmonics encoding
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 0] = rayD.x * 0.5f + 0.5f;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 1] = rayD.y * 0.5f + 0.5f;
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + DIR_OFFSET + 2] = rayD.z * 0.5f + 0.5f;
+            
+            input_cpu_buffer[idx * N_VOLUME_INPUT_DIMS + TMAX_OFFSET] = tMaxVal;
+
+            constexpr float epsilon = 1e-6f;
+            constexpr float MAX_RADIANCE = 1000.f; //for now, just hard clamping this
+            for (int c = 0; c < 3; ++c) {
+                if(bs.beta_before_rgb[c] > epsilon)
+                {
+                    float val = std::max(0.f, bs.L_after_rgb[c]);
+                    float L_clamped = std::min(MAX_RADIANCE, val / bs.beta_before_rgb[c]);
+                    float L_log = std::log(L_clamped + 1.f);
+                    target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = L_log;
+                } else {
+                    target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + L_OFFSET + c] = 0.f;
+                }
+            }
+
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, bs.T_after[0]));
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, bs.T_after[1]));
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, bs.T_after[2]));
+        }
+
+        ptr += fileCount;
+    }
+
+
+    //INFO: Calculating Normalization data
+    // Compute scale and offset to fit in [0, 1]
+    float scale, tMax_scale, tMax_offset;
+    vec3 offset;
+    vec3 size = max_bound - min_bound;
+    float max_dim = std::max({size.x, size.y, size.z});
+
+    if(max_dim == 0) max_dim = 1.f;
+
+    scale = 1.f / max_dim;
+
+    vec3 centre = (max_bound + min_bound) * 0.5f;
+    offset = vec3(0.5f) - centre * scale;
+
+    float tMax_range = maxTMax - minTMax;
+
+    if(tMax_range == 0.f)
+    {
+        tMax_range = 1.f;
+        tlog::warning() << "tMax range is 0, no normalization applied";
+    }
+
+    tMax_scale = 1.f / tMax_range;
+    tMax_offset = minTMax;
+
+
+    // Store normalization params in testbed
+    testbed.m_volume_training_inputs_scale = scale;
+    testbed.m_volume_training_inputs_offset = offset;
+    testbed.m_volume_training_inputs_tMax_scale = tMax_scale;
+    testbed.m_volume_training_inputs_tMax_offset = tMax_offset;
+
+    tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
+            << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
+            << max_bound.z << "]";
+    tlog::info() << "Auto-normalizing rays: scale=" << scale << " offset=[" << offset.x
+            << ", " << offset.y << ", " << offset.z << "]";
+    tlog::info() << "Auto-normalizing tmax: scale=" << tMax_scale << " with range=[ "
+            << minTMax << ", " << maxTMax << " ]\n";
+
+    //INFO: Applying Normalization 
+    for(uint64_t i = 0; i < total_sample_cnt; ++i)
+    {
+        auto index = i * N_VOLUME_INPUT_DIMS;
+        
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = input_cpu_buffer[index + POS_OFFSET + dim];
+            input_cpu_buffer[index + POS_OFFSET + dim] = val * scale + offset[dim];
+        }
+
+        const float tMax_val = input_cpu_buffer[index + TMAX_OFFSET];
+        input_cpu_buffer[index + TMAX_OFFSET] = (tMax_val - tMax_offset) * tMax_scale;
+    }
+
+    const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS * sizeof(float);
+    const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS * sizeof(float);
+
+
+    //GPU Upload or Pinned memory streaming
+    tlog::info() << "Training data too large for VRAM ( " << (input_bytes_to_copy + target_bytes_to_copy)/1e9 
+                << " GB). Using CPU memory streaming instead.";
+            
+
+    GPUMemory<float>* input_gpu_ptr = &testbed.m_volume_training_inputs;
+    GPUMemory<float>* target_gpu_ptr = &testbed.m_volume_training_targets;
+    input_gpu_ptr->resize(0);
+    target_gpu_ptr->resize(0);
 }
 
 void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType dataset_type)
@@ -1152,7 +1337,7 @@ int main(int argc, char** argv)
     {
         parser,
         "TRAINING_ITERATIONS",
-        "How many epochs to train for (default 30k batch iterations)",
+        "How many epochs to train for (default 40k batch iterations)",
         {
             "n-epochs"
         }
@@ -1246,6 +1431,26 @@ int main(int argc, char** argv)
         "Whether to use L2 relative loss (default uses splitl2)",
         {
             "l2-relative-loss"
+        }
+    };
+
+    ValueFlag<std::string> training_metrics_export_path
+    {
+        parser,
+        "PATH_TO_TRAINING_METRICS_EXPORT_FILE",
+        "Path to export training metrics to",
+        {
+            "training-metrics-export-path"
+        }
+    };
+
+    ValueFlag<int> training_export_freq
+    {
+        parser,
+        "TRAINING_METRICS_EXPORT_FREQ",
+        "How frequently to export training metrics (per # of iterations)",
+        {
+            "training-metrics-export-freq"
         }
     };
 
@@ -1482,8 +1687,7 @@ int main(int argc, char** argv)
     uint32_t last_epoch = curr_epoch;
     std::vector<Testbed::ValidationTestResults> validation_loss_results;
 
-    auto last_time = std::chrono::steady_clock::now();
-    float total_training_time = 0.f;
+    double total_training_time = 0.f;
     if(perform_l1_flag)
     {
         testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL1;
@@ -1493,29 +1697,51 @@ int main(int argc, char** argv)
         testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2Relative;
     }
     ESplitLossMode originalLossMode = testbed.m_loss->m_loss_mode;
+    int export_freq = 0;
+    if (training_export_freq) {
+        export_freq = get(training_export_freq);
+    }
+
+    struct TrainingExportMetrics
+    {
+        float mseLoss;
+        float emaMseLoss;
+        double timeElapsed;
+        uint64_t iteration;
+    };
+    std::vector<TrainingExportMetrics> exportMetrics;
+    auto last_time = std::chrono::steady_clock::now();
 
     while (testbed.frame()) {
         auto now = std::chrono::steady_clock::now();
-        total_training_time += std::chrono::duration<float>(now - last_time).count();
+        total_training_time += std::chrono::duration<double>(now - last_time).count();
 
 
-        if (!(curr_frame % BATCH_INTERVAL)) {
+        if (!(curr_frame % BATCH_INTERVAL) && validation_flag) {
             tlog::info() << "Done " << curr_frame << " frames\n";
             tlog::info() << "iteration=" << testbed.m_training_step
             << " loss=" << testbed.m_loss_scalar.val()
             << " ema loss=" << testbed.m_loss_scalar.ema_val();
-
-                // size_t n_check_samples = std::min((size_t)testbed.m_n_volume_training_samples, (size_t)(1 << 20)); // Check ~1M samples max
-                // Testbed::ValidationTestResults res = evaluate_pure_loss(testbed, testbed.m_volume_training_inputs, testbed.m_volume_training_targets, n_check_samples);
-                // training_loss_results.push_back(res);
-                // tlog::info() << "pure loss mse = " << res.mse << " psnr = " << res.psnr;
-                // last_epoch = curr_epoch;
             testbed.m_train = false;
             testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2;
             Testbed::ValidationTestResults res = testbed.validation_test();
             validation_loss_results.push_back(res);
             testbed.m_train = true;
             testbed.m_loss->m_loss_mode = originalLossMode;
+        }
+        else if(training_metrics_export_path && !(curr_frame % export_freq))
+        {
+            tlog::info() << "Done " << curr_frame << " frames\n";
+            tlog::info() << "iteration=" << testbed.m_training_step
+            << " loss=" << testbed.m_loss_scalar.val()
+            << " ema loss=" << testbed.m_loss_scalar.ema_val();
+            TrainingExportMetrics tem;
+            
+            tem.mseLoss = testbed.m_loss_scalar.val();
+            tem.emaMseLoss = testbed.m_loss_scalar.ema_val();
+            tem.timeElapsed = total_training_time;
+            tem.iteration = curr_frame;
+            exportMetrics.push_back(tem);
         }
         curr_frame++;
         
@@ -1603,6 +1829,20 @@ int main(int argc, char** argv)
             formattedStr += "]\n";
             
             mseFile.write(formattedStr.c_str(), formattedStr.length());
+        }
+    }
+
+    if(training_metrics_export_path)
+    {
+        const fs::path& metrics_path = get(training_metrics_export_path);
+        std::ofstream metrics_file{native_string(metrics_path), std::ios::out | std::ios::app};
+        for(const auto& tem : exportMetrics)
+        {
+            std::string formatted_string =
+                fmt::format("mse:{},ema:{},time:{},frame:{}", tem.mseLoss, tem.emaMseLoss,
+                            tem.timeElapsed, tem.iteration);
+            formatted_string += "\n";
+            metrics_file.write(formatted_string.c_str(), formatted_string.length());
         }
     }
 
