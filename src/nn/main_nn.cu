@@ -678,7 +678,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
     }
     *n_samples_ptr = sampleCount;
 
-    if(testbed.m_stream_training_data_from_CPU && dataset_type == DatasetType::Training)
+    if((testbed.m_stream_training_data_from_CPU || testbed.m_stream_test_data_from_CPU) && (dataset_type == DatasetType::Training || dataset_type == DatasetType::Test))
     {
         const auto training_input_bytes_size = sampleCount * N_VOLUME_INPUT_DIMS * sizeof(float);
         const auto training_target_bytes_size = sampleCount * N_VOLUME_TARGET_DIMS * sizeof(float);
@@ -855,7 +855,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
     }
 
 
-    if(testbed.m_stream_training_data_from_CPU && dataset_type == DatasetType::Training)
+    if((testbed.m_stream_training_data_from_CPU || testbed.m_stream_test_data_from_CPU) && (dataset_type == DatasetType::Training || dataset_type == DatasetType::Test))
     {
         const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS * sizeof(float);
         const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS * sizeof(float);
@@ -1363,6 +1363,16 @@ int main(int argc, char** argv)
         }
     };
 
+    ValueFlag<std::string> test_path_flag
+    {
+        parser,
+        "TEST_PATH",
+        "Path to Test data file",
+        {
+            "test-file-path"
+        }
+    };
+
 
     Flag test_flag
     {
@@ -1702,12 +1712,27 @@ int main(int argc, char** argv)
         export_freq = get(training_export_freq);
     }
 
+    // We want to also load the test set as well
+    if(training_metrics_export_path && test_path_flag)
+    {
+        testbed.m_stream_test_data_from_CPU = true;
+        const fs::path &test_path = get(test_path_flag);
+        delete[] testbed.m_volume_training_inputs_cpu;
+        delete[] testbed.m_volume_training_targets_cpu;
+        testbed.m_volume_training_targets_cpu = nullptr;
+        testbed.m_volume_training_inputs_cpu = nullptr;
+        load_dataset_to_testbed(testbed, test_path, DatasetType::Test);
+    }
+
     struct TrainingExportMetrics
     {
-        float mseLoss;
-        float emaMseLoss;
+        float trainMseLoss;
+        float trainEmaMseLoss;
+        float testMSELoss;
+        float testPSNR;
         double timeElapsed;
         uint64_t iteration;
+
     };
     std::vector<TrainingExportMetrics> exportMetrics;
     auto last_time = std::chrono::steady_clock::now();
@@ -1735,10 +1760,20 @@ int main(int argc, char** argv)
             tlog::info() << "iteration=" << testbed.m_training_step
             << " loss=" << testbed.m_loss_scalar.val()
             << " ema loss=" << testbed.m_loss_scalar.ema_val();
+
+            testbed.m_train = false;
+            testbed.m_loss->m_loss_mode = ESplitLossMode::SplitL2;
+            Testbed::ValidationTestResults res = testbed.validation_test(true);
+            validation_loss_results.push_back(res);
+            testbed.m_train = true;
+            testbed.m_loss->m_loss_mode = originalLossMode;
+
             TrainingExportMetrics tem;
             
-            tem.mseLoss = testbed.m_loss_scalar.val();
-            tem.emaMseLoss = testbed.m_loss_scalar.ema_val();
+            tem.trainMseLoss = testbed.m_loss_scalar.val();
+            tem.trainEmaMseLoss = testbed.m_loss_scalar.ema_val();
+            tem.testMSELoss = res.mse;
+            tem.testPSNR = res.psnr;
             tem.timeElapsed = total_training_time;
             tem.iteration = curr_frame;
             exportMetrics.push_back(tem);
@@ -1758,7 +1793,7 @@ int main(int argc, char** argv)
         {
             break;
         }
-        last_time = now;
+        last_time = std::chrono::steady_clock::now();
         // The frame() function handles training steps if m_train is true.
     }
 
@@ -1839,7 +1874,8 @@ int main(int argc, char** argv)
         for(const auto& tem : exportMetrics)
         {
             std::string formatted_string =
-                fmt::format("mse:{},ema:{},time:{},frame:{}", tem.mseLoss, tem.emaMseLoss,
+                fmt::format("testMse:{},testPSNR:{},mse:{},ema:{},time:{},frame:{}", 
+                            tem.testMSELoss,  tem.testPSNR, tem.trainMseLoss, tem.trainEmaMseLoss,
                             tem.timeElapsed, tem.iteration);
             formatted_string += "\n";
             metrics_file.write(formatted_string.c_str(), formatted_string.length());

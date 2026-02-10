@@ -3990,7 +3990,7 @@ void Testbed::update_vr_performance_settings() {
 #endif // NGP_GUI
 }
 
-Testbed::ValidationTestResults Testbed::validation_test()
+Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 {
 	try {
 		while (true) {
@@ -4003,15 +4003,47 @@ Testbed::ValidationTestResults Testbed::validation_test()
             throw std::runtime_error{"No network loaded!"};
 	}
 
-	if(m_n_volume_validation_samples == 0)
+	GPUMemory<float>* test_input_ptr = &m_volume_validation_inputs;
+	GPUMemory<float>* test_target_ptr = &m_volume_validation_targets;
+	float* test_inputs_cpu_ptr = m_volume_validation_inputs_cpu;
+	float* test_targets_cpu_ptr = m_volume_validation_targets_cpu;
+	uint64_t* test_sample_cnt_ptr = &m_n_volume_validation_samples;
+	if(onTestSet)
+	{
+		test_input_ptr = &m_volume_test_inputs;
+		test_target_ptr = &m_volume_test_targets;
+		test_sample_cnt_ptr = &m_n_volume_test_samples;
+		test_inputs_cpu_ptr = m_volume_test_inputs_cpu;
+		test_targets_cpu_ptr = m_volume_test_targets_cpu;
+	}
+	auto& test_inputs = *test_input_ptr;
+	auto& test_targets = *test_target_ptr;
+	auto& test_sample_cnt = *test_sample_cnt_ptr;
+
+	if(test_sample_cnt == 0)
 	{
             throw std::runtime_error{"No validation data available..."};
 	}
-	tlog::info() << "Performing Validation testing...";
+	
+	if(m_stream_test_data_from_CPU)
+	{
+		if(!test_inputs_cpu_ptr || !test_targets_cpu_ptr)
+		{
+                    throw std::runtime_error{
+                        onTestSet ? "Test data missing" : "Validation data missing"};
+		}
+		tlog::info() << "Streaming " << (onTestSet ? "Test " : "Validation ") << "data from pinned memory";
+	}
+	else
+	{
+		tlog::info() << "Performing Validation testing...";
+	}
+
+
 
 	cudaStream_t stream = m_stream.get();
 
-	const uint64_t n_elements = m_n_volume_validation_samples;
+	const uint64_t n_elements = test_sample_cnt;
 
 	const uint32_t padded_output = m_network->padded_output_width();
 
@@ -4031,6 +4063,13 @@ Testbed::ValidationTestResults Testbed::validation_test()
 	const uint32_t n_batches =
             (uint32_t)tcnn::div_round_up(n_elements, (uint64_t)max_batch_size);
 
+	GPUMemory<float> temp_streaming_inputs;
+	GPUMemory<float> temp_streaming_targets;
+	if(m_stream_test_data_from_CPU)
+	{
+		temp_streaming_inputs.resize(max_batch_size * N_VOLUME_INPUT_DIMS);
+                temp_streaming_targets.resize(max_batch_size * N_VOLUME_TARGET_DIMS);
+	}
 
 	float total_loss = 0.f;
 	uint64_t total_samples = 0;
@@ -4046,13 +4085,42 @@ Testbed::ValidationTestResults Testbed::validation_test()
 			continue;
 		}
 
+		float* input_data_ptr = nullptr;
+		float* target_data_ptr = nullptr;
+
+		if(m_stream_test_data_from_CPU)
+		{
+			// Stream data via Copy From Host to temp device buffer
+			CUDA_CHECK_THROW(cudaMemcpyAsync(
+				temp_streaming_inputs.data(),
+				test_inputs_cpu_ptr + offset * N_VOLUME_INPUT_DIMS,
+				batch_size * N_VOLUME_INPUT_DIMS * sizeof(float),
+				cudaMemcpyHostToDevice, stream
+			));
+
+			CUDA_CHECK_THROW(cudaMemcpyAsync(
+				temp_streaming_targets.data(),
+				test_targets_cpu_ptr + offset * N_VOLUME_TARGET_DIMS,
+				batch_size * N_VOLUME_TARGET_DIMS * sizeof(float),
+				cudaMemcpyHostToDevice, stream
+			));
+
+			input_data_ptr = temp_streaming_inputs.data();
+			target_data_ptr = temp_streaming_targets.data();
+		}
+		else
+		{
+			input_data_ptr = test_inputs.data() + offset * N_VOLUME_INPUT_DIMS;
+			target_data_ptr = test_targets.data() + offset * N_VOLUME_TARGET_DIMS;
+		}
+
 		// Create GPU matrices for validation data
 		GPUMatrix<float> input_matrix(
-			m_volume_validation_inputs.data() + offset * N_VOLUME_INPUT_DIMS,
+			input_data_ptr,
 			N_VOLUME_INPUT_DIMS, batch_size);
 
 		GPUMatrix<float> target_matrix(
-			m_volume_validation_targets.data() + offset * N_VOLUME_TARGET_DIMS,
+			target_data_ptr,
 			N_VOLUME_TARGET_DIMS, batch_size);
 
 		GPUMatrix<network_precision_t> predictions_matrix(
@@ -4087,7 +4155,8 @@ Testbed::ValidationTestResults Testbed::validation_test()
 
 	tlog::info() << "Validation Results - MSE: " << mse << ", PNSR: " << psnr
 				<< " dB"
-				<< " (n_samples: " << total_samples << ")";
+				<< " (n_samples: " << total_samples << ")"
+				<< " (n_elements: " << n_elements << ")";
 
 	return {mse, psnr};
 }

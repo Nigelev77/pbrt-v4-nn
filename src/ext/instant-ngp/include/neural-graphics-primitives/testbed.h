@@ -570,7 +570,7 @@ public:
 		float psnr;
 	};
 
-	ValidationTestResults validation_test();
+	ValidationTestResults validation_test(bool onTestSet = false);
 	bool want_repl();
 	void load_image(const fs::path& data_path);
 	void load_exr_image(const fs::path& data_path);
@@ -1366,6 +1366,7 @@ public:
 
 	bool m_perform_epoch_based_training = false;
 	bool m_stream_training_data_from_CPU = false;
+	bool m_stream_test_data_from_CPU = false;
 };
 
 } // namespace ngp

@@ -408,8 +408,7 @@ namespace pbrt
 
     WavefrontPathIntegrator::~WavefrontPathIntegrator()
     {
-        Printf("WavefrontPathIntegrator destructor: Output should now contain %d number of samples\n", rayLogSampleCnt);
-        LOG_VERBOSE("Output should now contain %d number of samples", rayLogSampleCnt);
+
         
         // Signal ray log threads to shutdown
         {
@@ -425,6 +424,9 @@ namespace pbrt
             if(t.joinable()) t.join();
         }
         Printf("Ray log threads finished.\n");
+
+        Printf("WavefrontPathIntegrator destructor: Output should now contain %d number of samples\n", rayLogSampleCnt);
+        LOG_VERBOSE("Output should now contain %d number of samples", rayLogSampleCnt);
 
         if (outputRayDataFile && outputRayDataFile->is_open())
         {
