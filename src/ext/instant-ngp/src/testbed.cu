@@ -1461,6 +1461,18 @@ void Testbed::imgui() {
 			glfwSwapInterval(m_vsync ? 1 : 0);
 		}
 
+		ImGui::Separator();
+		ImGui::Text("Volume Validation");
+		static float debug_slice_z = 0.5f;
+		ImGui::SliderFloat("Slice Z", &debug_slice_z, 0.f, 1.0f);
+		if(ImGui::Button("Dump Slice .PNG"))
+		{
+			static int slice_counter = 0;
+			std::string filename = fmt::format("slice_{:03d}.png", slice_counter++);
+			dump_slice_img(filename, debug_slice_z);
+		}
+		ImGui::Separator();
+
 		if (!tcnn::supports_jit_fusion()) {
 			set_jit_fusion(false);
 			ImGui::BeginDisabled();
@@ -6241,4 +6253,220 @@ bool Testbed::loop_animation() { return m_camera_path.loop; }
 
 void Testbed::set_loop_animation(bool value) { m_camera_path.loop = value; }
 
+__global__ void generate_slice_inputs(
+	const uint32_t n_elements,
+	const ivec2 res,
+	float slice_z,
+	// BoundingBox aabb,
+	float* network_input,
+	float tMaxVal
+)
+{
+    const uint32_t i = threadIdx.x + blockIdx.x * blockDim.x;
+
+	if(i >= n_elements) return;
+
+	int x = i % res.x;
+	int y = i / res.x;
+
+
+	// Normalize Pixel coordinates
+	float u = (float)x / (float)(res.x - 1);
+	float v = (float)y / (float)(res.y - 1);
+
+	vec3 pos;
+	pos.x = u;
+	pos.y = v;
+
+	pos.z = slice_z;
+
+	vec3 warped_pos = pos;
+
+	vec3 dir = {0.00415f, 0.9965f, -0.083f};
+	vec3 warped_dir = dir * 0.5f + 0.5f;
+
+
+	uint32_t base_idx = i * 7;
+	network_input[base_idx + 0] = warped_pos.x;
+	network_input[base_idx + 1] = warped_pos.y;
+	network_input[base_idx + 2] = warped_pos.z;
+	network_input[base_idx + 3] = warped_dir.x;
+	network_input[base_idx + 4] = warped_dir.y;
+	network_input[base_idx + 5] = warped_dir.z;
+	network_input[base_idx + 6] = tMaxVal;
+}
+
+void Testbed::compute_and_save_png(
+	const fs::path& filename, const vec2& res, 
+	int channel_stride, bool is_srgb, const float* data,
+	int n_channels_to_save, float scale
+)
+{
+    std::vector<uint8_t> img_data((size_t)res.x * (size_t)res.y * n_channels_to_save);
+
+    for (int y = 0; y < (int)res.y; ++y) {
+        for (int x = 0; x < (int)res.x; ++x) {
+            size_t idx = x + y * (size_t)res.x;
+            for (int c = 0; c < n_channels_to_save; ++c) {
+                float v = data[idx * channel_stride + c] * scale;
+                if (!is_srgb) {
+                    v = linear_to_srgb(v);
+                }
+                img_data[idx * n_channels_to_save + c] =
+                    (uint8_t)min(max(v * 255.0f + 0.5f, 0.0f), 255.0f);
+            }
+        }
+	}
+
+        write_stbi(filename, (int)res.x, (int)res.y, n_channels_to_save, img_data.data());
+}
+
+void Testbed::dump_slice_img(const fs::path& path, float slice_z)
+{
+	if(!m_network)
+	{
+		tlog::error() << "No network available";
+                return;
+        }
+
+	const int res = 512;
+	const uint32_t n_pixels = res * res;
+	const uint32_t n_elements = next_multiple(n_pixels, BATCH_SIZE_GRANULARITY);
+	
+	cudaStream_t stream;
+	CUDA_CHECK_THROW(cudaStreamCreate(&stream));
+
+	
+	GPUMatrix<float> network_input(7, n_elements, stream);
+	GPUMatrix<float> network_output(6, n_elements, stream);
+
+
+	const dim3 threads = {128, 1, 1};
+	const dim3 blocks = {div_round_up(n_pixels, threads.x), 1, 1};
+
+
+	float tMaxVal = 1e-3f;
+	generate_slice_inputs<<<blocks, threads, 0, stream>>>(
+		n_pixels, {res, res}, slice_z, network_input.data(), tMaxVal);
+
+	m_network->inference(stream, network_input, network_output);
+	
+	std::vector<float> cpu_output(n_elements * 6);
+	
+	CUDA_CHECK_THROW(
+		cudaMemcpyAsync(
+			cpu_output.data(),
+			network_output.data(),
+			n_elements * 6 * sizeof(float),
+			cudaMemcpyDeviceToHost,
+			stream
+		)
+	);
+
+
+	CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
+
+	std::vector<float> img_rgb(n_pixels * 3);
+	for(uint32_t i = 0; i < n_pixels; ++i)
+	{
+		float log_r = cpu_output[i * 6 + 0];
+		float log_g = cpu_output[i * 6 + 1];
+		float log_b = cpu_output[i * 6 + 2];
+
+		float r = std::max(0.f, std::exp(log_r) - 1.f);
+		float g = std::max(0.f, std::exp(log_g) - 1.f);
+		float b = std::max(0.f, std::exp(log_b) - 1.f);
+
+		img_rgb[i * 3 + 0] = r / (1.f + r);
+		img_rgb[i * 3 + 1] = g / (1.f + g);
+		img_rgb[i * 3 + 2] = b / (1.f + b);
+	}
+
+	tlog::info() << "Dumped slice to " << native_string(path);
+	compute_and_save_png(path, {res, res}, 3, false, img_rgb.data(), 3);
+	cudaStreamDestroy(stream);
+}
+
+void Testbed::dump_validation_scatter_data(const fs::path& path, uint32_t n_samples)
+{
+	if(!m_volume_test_inputs.data())
+	{
+		tlog::warning() << "No validation data available to dump";
+                return;
+        }
+
+        uint32_t n_to_dump = std::min((uint32_t)m_n_volume_test_samples, n_samples);
+	n_to_dump = next_multiple(n_to_dump, BATCH_SIZE_GRANULARITY);
+	
+	if(n_to_dump > m_n_volume_test_samples)
+	{
+            n_to_dump -= BATCH_SIZE_GRANULARITY;
+	}
+
+	tlog::info() << "Dumping " << n_to_dump << " test samples to " << path.str();
+
+	const uint32_t padded_output = m_network->padded_output_width();
+
+	GPUMemory<network_precision_t> predictions(n_to_dump * padded_output);
+
+	GPUMatrix<float> input_matrix(m_volume_test_inputs.data(), N_VOLUME_INPUT_DIMS,
+                                      n_to_dump);
+	GPUMatrix<network_precision_t> output_matrix(predictions.data(),
+												padded_output, n_to_dump);
+
+	m_network->inference_mixed_precision(m_stream.get(), input_matrix, output_matrix, true);
+
+	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
+
+	std::vector<network_precision_t> predictions_cpu(n_to_dump * padded_output);
+
+	predictions.copy_to_host(predictions_cpu);
+	
+	std::vector<float> targets_cpu(n_to_dump * N_VOLUME_TARGET_DIMS);
+	CUDA_CHECK_THROW(cudaMemcpy(targets_cpu.data(), m_volume_test_targets.data(), n_to_dump * N_VOLUME_TARGET_DIMS * sizeof(float), cudaMemcpyDeviceToHost));
+
+	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
+
+
+	std::ofstream f(path.str());
+
+        if(!f.is_open())
+	{
+            tlog::error() << "Could not open file: " << path.str();
+            return;
+	}
+
+	f << "gt_L_r,gt_L_g,gt_L_b,gt_T_r,gt_T_g,gt_T_b,pred_L_r,pred_L_g,pred_L_b,pred_T_r,pred_T_g,pred_T_b\n";
+   
+
+
+	for(size_t i = 0; i < n_to_dump; ++i)
+	{
+		for(int j = 0; j < 6; ++j)
+		{
+			f << targets_cpu[i * 6 + j] << ",";
+		}
+
+		for(int j = 0; j < 6; ++j)
+		{
+			float raw = (float)predictions_cpu[i*padded_output + j];
+			float val;
+
+
+			if(j < 3)
+			{
+				val = std::max(0.f, raw);
+			}
+			else
+			{
+				val = 1.f / (1.f + std::exp(-raw));
+			}
+
+			f << val << (j == 5 ? "" : ",");
+		}
+		f << "\n";
+	}
+
+	tlog::success() << "Dumped scatter data to: " << path.str();
+}
 } // namespace ngp

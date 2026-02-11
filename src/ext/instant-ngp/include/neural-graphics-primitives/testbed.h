@@ -1367,6 +1367,12 @@ public:
 	bool m_perform_epoch_based_training = false;
 	bool m_stream_training_data_from_CPU = false;
 	bool m_stream_test_data_from_CPU = false;
+
+	void compute_and_save_png(const fs::path& filename, const vec2& resolution, int channel_stride, bool is_srgb, const float* data, int n_channels_to_save, float scale = 1.0f);
+
+	void dump_slice_img(const fs::path &path, float z_slice = 0.5f);
+
+	void dump_validation_scatter_data(const fs::path &path, uint32_t n_samples = 10000);
 };
 
 } // namespace ngp

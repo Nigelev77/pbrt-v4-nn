@@ -616,7 +616,7 @@ void load_datasets_to_testbed(Testbed& testbed, const std::vector<fs::path>& pat
     target_gpu_ptr->resize(0);
 }
 
-void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType dataset_type)
+void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType dataset_type, bool should_shuffle = false)
 {
     std::ifstream f{native_string(path), std::ios::in | std::ios::out | std::ios::binary };
     if(!f.is_open())
@@ -703,7 +703,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
         sizeof(BinaryTrainingSample) * sampleCount);
 
 
-    if(dataset_type == DatasetType::Training)
+    if(dataset_type == DatasetType::Training || should_shuffle)
     {
         std::random_device rd;
         std::mt19937 shuffle_rng(rd());
@@ -1296,6 +1296,8 @@ Testbed::ValidationTestResults evaluate_pure_loss(Testbed& testbed, const GPUMem
 }
 
 
+
+
 int main(int argc, char** argv)
 {
     std::vector<std::string> arguments;
@@ -1464,6 +1466,26 @@ int main(int argc, char** argv)
         }
     };
 
+    ValueFlag<std::string> generate_slice_path_flag
+    {
+        parser,
+        "GENERATE-SLICE",
+        "Whether to skip training and generate slice",
+        {
+            "generate-slice-path"
+        }
+    };
+
+    ValueFlag<std::string> generate_scatter_path_flag
+    {
+        parser,
+        "GENERATE_SCATTER_PATH_FLAG",
+        "Path to generate scatter path csv, note requires a test-data path",
+        {
+            "generate-scatter-path"
+        }
+    };
+
     // Flag no_gui_flag{
 	// 	parser,
 	// 	"NO_GUI",
@@ -1552,17 +1574,22 @@ int main(int argc, char** argv)
         CUDA_CHECK_THROW(cudaDeviceSynchronize());
         CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
 
-        tlog::info() << "Loading dataset...";
-        load_nerfdataset(testbed, data_path);
+        if(!data_path.empty())
+        {
+            tlog::info() << "Loading dataset...";
+            load_nerfdataset(testbed, data_path);
+            CUDA_CHECK_THROW(cudaDeviceSynchronize());
+            CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
 
-        CUDA_CHECK_THROW(cudaDeviceSynchronize());
-        CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
-
+            testbed.m_train = true;
+            testbed.m_training_data_available = true;
+        }
+        else
+        {
+            
+        }
         testbed.update_imgui_paths();
 
-        //TODO: Put this as a flag
-        testbed.m_train = true;
-        testbed.m_training_data_available = true;
 
     } else {
         //INFO: Load Nerf data, because Volume data actually refers to NanoVDB
@@ -1736,6 +1763,30 @@ int main(int argc, char** argv)
     };
     std::vector<TrainingExportMetrics> exportMetrics;
     auto last_time = std::chrono::steady_clock::now();
+
+    //Only generate slice if we have provided a msgpack file path
+    if(generate_slice_path_flag && model_flag)
+    {
+        std::string path = get(generate_slice_path_flag);
+        testbed.m_train = false;
+        for(int i = 0; i < 20; ++i)
+        {
+            std::string filename = fmt::format("{}_{}.png", path.c_str(), i);
+            testbed.dump_slice_img(filename, (float)i * (0.5f/20.f));
+        }
+        return 0;
+    }
+
+
+    if(generate_scatter_path_flag && model_flag && test_path_flag)
+    {
+        std::string scatter_csv_path = get(generate_scatter_path_flag);
+        testbed.m_train = false;
+        const fs::path& test_path = get(test_path_flag);
+        load_dataset_to_testbed(testbed, test_path, DatasetType::Test, true);
+        testbed.dump_validation_scatter_data(scatter_csv_path);
+        return 0;
+    }
 
     while (testbed.frame()) {
         auto now = std::chrono::steady_clock::now();

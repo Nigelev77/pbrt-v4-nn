@@ -21,3 +21,10 @@ scenes/*
 *.bin
 log.txt
 checkcuda
+
+test_*.png
+flame_*.png
+
+check_optix*
+
+imgui.ini
