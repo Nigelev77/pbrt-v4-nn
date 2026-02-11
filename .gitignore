@@ -16,3 +16,8 @@ src/ext/instant-ngp/docs/*
 
 
 scenes/*
+
+*.exr
+*.bin
+log.txt
+checkcuda
