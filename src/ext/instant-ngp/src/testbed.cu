@@ -6329,7 +6329,7 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z)
                 return;
         }
 
-	const int res = 512;
+	const int res = 1024;
 	const uint32_t n_pixels = res * res;
 	const uint32_t n_elements = next_multiple(n_pixels, BATCH_SIZE_GRANULARITY);
 	
@@ -6444,7 +6444,13 @@ void Testbed::dump_validation_scatter_data(const fs::path& path, uint32_t n_samp
 	{
 		for(int j = 0; j < 6; ++j)
 		{
-			f << targets_cpu[i * 6 + j] << ",";
+			float val = (float)targets_cpu[i * 6 + j];
+			if(j < 3)
+			{
+				val = std::max(0.f, std::exp(val) - 1.f);
+			}
+
+			f << val << ",";
 		}
 
 		for(int j = 0; j < 6; ++j)
