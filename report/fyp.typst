@@ -1,0 +1,200 @@
+//Show rules
+#set page(margin: (left: 1cm, right: 1cm, top: 1cm, bottom: 1cm))
+#show heading.where(level: 2): it => pad(left: 0.5em, it)
+#show heading.where(level: 3): it => pad(left: 1em, it)
+
+// Custom bindings
+#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), body)
+
+
+#align(center)[
+  #text(1.25em)[*Physically based Neural Volumetric Sampling using Instant Neural Graphics Primitives*]
+
+  #text(1.2em)[Elijah Villarmia]
+
+  // Using a block with width constrains the abstract for better readability
+  #text(1em)[
+    *Abstract*
+  ]
+
+  #text(10pt, spacing: 90%)[
+    This report presents the motivation, design, training and evaluation of an Instant NGP network integrated into the volumetric scattering kernel of a physically based path tracer (PBRT-v4). It will explore the emergence of Neural Architectures in Rendering, briefly explain Physically Based Path Tracing and how this project integrates the network into the pipeline. We will also explore the data preparation for the model, evaluation of potential model hyper-parameters, model evaluation and integration into the pipeline, as well as the many troubles and findings made.
+  ]
+]
+
+#set heading(numbering: "1.1.1")
+
+// Add indentation to level 2 headings
+
+= Introduction
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Motivation
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Rendering: Time vs Realism
+]
+
+#p(3)[
+  #set text(size: 9.5pt)
+  Figuring out a graphics model to render 3D scenes to a 2D screen (or 3D virtual environment for VR/AR) in a realistic manner is an evolving field, with many pipelines, models and approximations being invented in order to solve what is known as *The Rendering Equation*, whilst trying to find a compromise between computation time and realism. Real-time applications typically prioritize computation time in order to present a target number of frames per second (FPS) and typically favours Rasterization which convert a scene's representation of triangles and vertices and converts those into screen space pixels. This achieves speed but at the cost of realism as they only approximate light. In order to get realism, this requires modelling more closely how light travels, which is the goal of Physically based path tracers.
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Neural Rendering
+]
+
+#p(3)[
+  #set text(size: 9.5pt)
+  In the advent of Neural Networks as well as the increasing capabilities of GPUs and increasing support and development of CUDA architecture, we have seen them being used in increasing number of fields, from Computer Vision, Language Processing and Image/Video Generation. Given enough clean data and sufficiently complex networks, they have been shown to be able to drastically improve both speed and efficiency of conventional classification and regression methods. This is no different for rendering, where neural network usage ranges from improving current pipelines, to recreating scenes from a collection of images or video to render an interactive world.
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Problem Statement: Volume Rendering
+]
+
+#p(2)[
+  #set text(size: 9.5pt)
+  Current solutions for rendering volumetric effects fall into two extremes. On the one hand, real-time applications perform ray marching approximations which compromise quality for speed. Offline physically based path tracers on the other hand provide photorealism at the cost of computation time from sampling hundreds of thousands of rays per pixel (and subpixel). At the same time, the field of Neural Rendering has introduced state of the art tools such as Neural Radiance fields (NeRFs) to render novel views of scenes, but these are often stand alone and require effort to integrate into a path tracer as well as the fact that many of these networks haven't been designed to approximate volumetric effects. This project attempts to bridge this gap and investigate the feasibility of whether a volumetric scattering GPU kernel can be replaced in a physically based path tracer with Neural Architecture.
+]
+
+
+// Physically based path tracers
+// //!IMPORTANT: INSERT REFERENCE HERE
+// like PBRT-v4 rely on modelling physical equations which can be very challenging due to a possibly infinite number of paths around a scene and is an intractable problem to calculate to 100 percent accuracy.
+
+
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Project Objectives
+]
+
+#p(2)[
+  #set text(size: 9.5pt)
+  Though there are many implementations for Path Tracers, almost all rely on sampling rays and estimation in order to calculate The Rendering Equation and sampling a limited set of ray paths per pixel to trace around the scene. Particularly for Volumes which need sampling throughout the medium, this can be costly to imitate fully. One notable path tracer, PBRT-v4, tackles volumetric scattering through this same sampling strategy via a GPU kernel. However, once an image is generated from a particular camera view, none of that work done by the path tracer is used for generating another view. The goal of this project is to explore the convergence of neural networks with physically based path tracing by integrating Instant Neural Graphics Primitives (Instant-NGP) architecture into PBRT-v4's path tracing system.
+
+
+  The primary goals are to:
+  #list(
+    [*Construct a Hybrid Pipeline*: Modify PBRT-v4 source code to extract data directly from the medium scattering kernel],
+    [*Train a Neural Network*: Utilize Instant-NGP architecture to learn outputs of the medium scattering GPU kernel in order to approximate RGB emitted radiance $L_e$ and RGB Transmittance $T$ ],
+    [*Neural Network Integration*: Hook up the Neural Network into PBRT-v4's ecosystem in order to replace the medium scattering kernel],
+    [*Evaluate Performance*: Assess the viability of replacing the medium scattering kernel to generate novel views. Evaluate the network's performance in generating those views according to:
+      #list(
+        [Visual quality],
+        [Computation time],
+        [Memory usage],
+        indent: 1em,
+      )
+    ],
+  )
+
+
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Milestones in Neural Rendering
+]
+
+#p(2)[
+  #set text(9.5pt)
+  The justification for replacing a path tracing GPU kernel with a Neural Network is rooted in recent advancements in Neural Rendering. These advancements in scene representation and scene encoding has shown that Neural Networks do well in approximating light transport
+
+  #list(
+    [
+      #text(size: 11pt)[*Neural Radiance Fields (NeRFs)*]\
+      Introduced by /*!TODO: Insert reference here! */ <>, NeRF proved that scenes can be represented by continuous functions of spatio-directional coordinates to color and density, showing networks can learn high-frequency vertex data.
+    ],
+    [
+      #text(size: 11pt)[*Instant Neural Graphics Primitives (Instant-NGP)*]\
+      /*!TODO: Insert reference here! */ <> addressed performance bottlenecks of NeRF by replacing deep MLPs that learned that scene data with a multi-resolution hash encoding. This architecture allows for near-instant inference of feature vectors, which will be important given the number of required paths queried in PBRT-v4
+    ],
+    [
+      #text(size: 11pt)[*Neural Radiance Caching (NRC)*]\
+      This technique demonstrated that relatively small MLPs can be trained "_online_" during rendering to cache radiance, showcasing that inference can be fast enough to run within a path tracing loop
+    ],
+    [
+      #text(size: 11pt)[*SeaThru-NeRF*]\
+      Slightly different to those above, this work explicitly separated an "object" and "medium" network, setting the precedence of separating surface and volume scattering into their own networks in order to handle participating media like fog or water.
+    ],
+    spacing: 1em,
+  )
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Other Notable Architectures
+]
+
+#p(2)[
+  #set text(size: 9.5pt)
+  There are other notable architectures which have been put forward in recent times, but with which we do not consider are given below (including the reason for its absence):\
+  \
+  #list([
+    #text(size: 11pt)[*Gaussian Splatting*]
+  ])
+]
+
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Theoretical Background
+]
+
+
+#p(1)[
+
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Physically Based Path Tracing
+]
+
+#p(2)[
+  #set text(size: 9.5pt)
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Neural Radiance Fields (NeRF)
+]
+#p(2)[
+  #set text(size: 9.5pt)
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Instant Neural Graphics Primitives (Instant-NGP)
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Related Work
+]
+
+
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Methodology and Implementation
+]
+
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Results and Evaluation
+]
+
