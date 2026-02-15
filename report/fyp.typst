@@ -1,11 +1,12 @@
 //Show rules
 #set page(margin: (left: 1cm, right: 1cm, top: 1cm, bottom: 1cm))
+#set page(numbering: "1 of 1", number-align: right)
 #show heading.where(level: 2): it => pad(left: 0.5em, it)
 #show heading.where(level: 3): it => pad(left: 1em, it)
 
 // Custom bindings
-#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), body)
-
+#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
+#let vb(val) = math.bold(math.upright(val))
 
 #align(center)[
   #text(1.25em)[*Physically based Neural Volumetric Sampling using Instant Neural Graphics Primitives*]
@@ -132,7 +133,7 @@
 
 #heading(depth: 2)[
   #set text(size: 11pt)
-  Other Notable Architectures
+  Another Notable Architecture
 ]
 
 #p(2)[
@@ -140,7 +141,11 @@
   There are other notable architectures which have been put forward in recent times, but with which we do not consider are given below (including the reason for its absence):\
   \
   #list([
-    #text(size: 11pt)[*Gaussian Splatting*]
+    #text(size: 11pt)[*Gaussian Splatting*]\
+
+    Gaussian Splatting represents a signficant divergence compared to previous encodings, as it represents the scene using anisotropic (directionally heterogeneous) 3D Gaussians (3DGS). Unliked the above architectures that use radiance transfer, it takes inspiration from traditional approaches by utilizing differentiable rasterization as opposed to volumetric ray-marching allowing for real-time rendering speeds and quick training times. \
+    \
+    However, the reason we did not pursue this representation, although it has been shown to have faster training and visual quality compared to other approaches, is that its scene reperesentation is completely different to what would be expected or would fit in a path tracer as it relies on alpha-blend compositing rather than physically based radiance transfer. Whilst it showcases superior speed and visual quality for surfaces, its reliance on a rasterization-based pipeline is incompatible for a physically based path tracer like PBRT-v4, particularly for simulating volumetric scattering for participating media which requires solving the integral-differential equation of transfer.
   ])
 ]
 
@@ -152,26 +157,177 @@
 
 
 #p(1)[
+  #set text(size: 9.5pt)
+
+  This section will provide a brief dive into studies, papers and architectures relevant to this project.
 
 ]
 
 
 #heading(depth: 2)[
   #set text(size: 11pt)
-  Physically Based Path Tracing
+  Physically Based Path Tracing (PBRT-v4)
+]<PBRT_section>
+
+#p(3)[
+  #set text(size: 9.5pt)
+  Conventional rasterization approaches render scenes by utilizing shader programs running in a pipeline, used in real-time applications (such as game engines and modelling software) which takes scene geometry in world space, projects them into render space and converts them into pixel fragments. Lighting calculations and occlusion testing is performed on these fragments to produce the final pixel colour. This process typically has clever shortcuts or technique to increase speed but may not produce photorealism.
+]
+
+#p(3)[
+
+  Other methods such as ray tracing were created which model light closer to real life, by constructing rays that shoot from the camera or lights to calculate scene lighting. Applications that want to simulate more realistics lighting effects at the cost of performance is a Whitted Ray Tracing approach, but this is usually only an enhancement for the rasterization process.
+
+  Path tracing is an evolution up in the ray tracing approach. It simulates how light actually propagates, by tracing "paths" from the camera that bounce around the scene, considering both direct illumination from light sources and indrect illumination from surface reflection as well as atteunation or emission effects from participating mediums. It uses mathematical models about how light interacts with surfaces and mediums and is the integral process within path tracing. Ray tracing is the umbrella term, whereas path tracing is a type of ray tracing which physically simulates tracing random light paths for more accurate indirect lighting for photorealism.
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  The Rendering Equation
+]
+
+
+#p(3)[
+  In Path tracing, as well as rasterization, what we want to solve is known as *The Rendering Equation*. This is an equation which details how much light a point $p$ on a surface emits in direction $omega_o$:
+
+]
+$
+  L_o (p, omega_o) = L_e (p, omega_o) + integral_(S^2) f(p, omega_o, omega_i) L_i (p, omega_i) |cos theta| d omega_i
+$\
+#p(3)[
+
+  whose terms are
+  #list(
+    indent: 2em,
+    [$L_o (p, omega_o)$: the outgoing radiance from $p$ in direction $omega_o$],
+    [$L_e (p, omega_o)$: the emitted radiance from $p$ in direction $omega_o$],
+    [$L_i (p, omega_i)$: the incident radiance at $p$ from all directions on sphere $S^2$],
+    [$theta$ is angle between incident direction $omega_i$ and $omega_o$],
+    [$f(p, omega_o, omega_i)$ is the Bidirectional Scattering Distribution Function (BSDF) of the surface at $p$],
+  )
+]
+
+#p(3)[
+
+  This equation can be further broken down into *Surface Scattering* and *Volume Scattering* as both model light scattering differently.
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Surface Scattering
+]
+
+
+#p(3)[
+  The *Bidirectional Reflectance Distribution Function (BRDF)* describes how light is reflected at a surface from a point and an incident direction and *Bidrectional Transmittance Distribution Function (BTDF)* describes how light is transmitted through a surface at a point from an incident direction. These can be combined into a encompassing *Bidrectional Scattering Distribution Function (BSDF)*. When consiering only the *BRDF* part, there are a couple main descriptors of this reflectance, namely _diffuse_, _glossy specular_, _perfect specular_ and _retroreflective_.
+
+  One of the conventional and most well known diffuse model is *Lambertian Reflectance*. This defines the property that apparent brightness of a surface is equal in all directions. Specifically, it states that materials obey "Lambert's cosine law" where radiant intensity is proportional to cosine of the surface normal and observer's line of sight:
+]
+
+$
+  L_("diffuse") = (L_("in") dot N dot L dot R)/pi = (L_("in") dot |N|\|L|cos theta dot R)/pi
+$
+
+#p(3)[
+  Where $R$ is is the BRDF's reflectance spectrum defining the fraction of incident light that gets scattered. This is divided by $pi$ to ensure total reflectance is equal to $R$ after integrating and to abide by energy conservation. /*!TODO: Ensure I also mention what L is*/
+]
+
+#p(3)[
+  Another type of BRDF concerns specular reflection which reflects scattered light preferentially in a set of directions. It shows blurry reflections for glossy specular materials and clear reflections for perfect specular materials like mirrors. The models here typically derive from *Cook-Torrance Model* which utilizes "microfacet theory" which models a specular surface as a series of "microfacet" surfaces. The more well known derivative is known as *Torrance-Sparrow Model* which performed a color shift to the Fresnel term and substituted the Normal Distribution for one that has better "tail highlights", described as:
+]
+
+$
+  R_s = (D * F * G)/(4 * (N dot V) * (N dot L))
+$
+
+#p(3)[
+  where:
+  - $D$ is the PDF for the microfacet model describing alignment of microfacets with the _half-vector_ (the vector which would perfectly reflect light onto the viewing angle). In Cook-Torrance this is typically the Beckmann or more popular GGX (Trowbridge-Reitz) distribution.
+  - $F$ is specular Fresnel factor which uses the Fresnel equations to describe how reflectance increases at grazing angles
+  - $G$ is the attenuation term to account for other microfacet masking and self-shadowing
+  - $N$ is surface normal vector, $L$ is incident vector and $V$ is the viewing vector
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Volumetric Scattering
+]
+
+#p(3)[
+  For Volume Scattering, the *(Integro-Differential) Equation of Transfers* describes how radiance along a beam changes within a medium due to attenuation (absorption/scattering) and emission sources from point $p$ to $p' = p + t omega$:
+]
+
+$
+  partial/(partial t) L_o (p', omega) = -sigma_t (p', omega) L_i (p', -omega) + sigma_t (p', omega) L_s (p', omega)
+$
+
+#p(3)[
+
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  PBRT-v4 on the GPU
 ]
 
 #p(2)[
   #set text(size: 9.5pt)
+  Path tracing typically runs on a GPU as it utilizes the unique architecture and parallelism it offers. However, this requires redesigning the algorithm to accomodate as GPU architectures prioritize throughput, prioritizing doing many computations in parallel and finishing all as quickly as possible
+
+  This throughput-first design means devoting less space on the chip for caches and predictive/speculative execution hardware to increase the number of computational units. However, for optimal performance *occupancy* is crucial but this requires data to be readily available as memory fetches can result in processor idling for hundreds of cycles. Unliked on a CPU, a GPU has a smaller cache hierachy and no ability to do out of order or speculative execution and instead focuses on aggressive thread switching. Whilst one thread is waiting for a read to complete, the GPU switches to executing instructions in another thread and if this requests a read, can switch to another and so on. Given enough threads and computation between reads, this keeps the GPU occupied. However, this requires architecting more paralleism to run at peak efficiency and requires tens of thousands of threads to fully utilize. Fortunately, path tracing can leverage this.
+
 ]
 
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  GPU Kernels and Wavefronts in PBRT-v4
+]
+
+#p(3)[
+  Threads on a GPU can be organized or grouped into _execution units_ or _processors_ (name dependent on vendor) which can execute 32, 64 or 128 threads concurrently with thousands of processors available. The main execution model centres around a *kernel* which refers to a function that runs on the GPU by a specific number of threads. _Launching_ a kernel refers to informing GPU  to execute a particular _kernel function_ concurrently. Unlike regular functions, kernels do not return a value so they must write any results into memory before exiting. GPUs also bundle threads into _thread groups_ (of 32 threads) which share a single instruction decoder but this means for kernels which have branching where some threads execute the first branch and some threads the second, the GPU will execute both with a subset of threads in the group disabled. This, in the worst case, causes a $32times$  loss in performance thus less divergence is better. This is particularly bad in path tracing where in each bounce, there are many different directions a light ray can diverge into. Thus, it is best to separate work into similar paths
+]
+
+#p(3)[
+  To accomodate this, PBRT-v4 uses a *Wavefront Architecture* where rays are processed in parallel and organized into work queues. A wavefront path tracer separates main operations of the algorithm into separate kernels. For a path tracer, these kernels may be generating camera rays, finding ray intersections, evaluating surface intersections and another may be sampling participating medium. These kernels are organized so some kernels produce work items that are enqueued into another. In PBRT-v4, the GPU path tracers is implemented in `WavefrontIntegrator` where the architecture is defined as:
+]
+#align(center)[
+  #figure(
+    image("Figure 15.2.png", width: 50%, height: auto),
+    caption: [Overview of Kernels Used in `WavefrontIntegrator`, also Figure 15.2 in PBRT-v4 /*!TODO: Add reference here*/],
+  )
+]
+
+#p(3)[
+  The advantage of this model is that execution in a kernel can start fully converged and whilst it may diverge inside the kernel function, it regularly converges them back in the next kernel. However, a cost of this is memory bandwidth, as data does not persist between launches and kernel reads its inputs from memory and outputs after executing.
+]
 
 #heading(depth: 2)[
   #set text(size: 11pt)
   Neural Radiance Fields (NeRF)
-]
+]<nerf_model_section>
 #p(2)[
   #set text(size: 9.5pt)
+  Neural Radiance Fields (NeRF), introduced by @mildenhall2020nerfrepresentingscenesneural, emerged as a popular method of training on a specific scene by taking images as input, in order to synthesize novel views across the scene. It gained its popularity for its ability to output high-quality renderings with small training times, on the magnitude of seconds.
+
+
+
+  Their approach represents the scene as a 5D vector of spatio-directional coordinates $vb(c) = (x, y, z)$ and $(theta, phi)$, and models their network as a 5D function $F_Theta : (vb(x), vb(d)) -> (vb(c), sigma)$ that predicts $c = (r, g, b)$ and volume density $sigma$ and thus achieves multi-view coherence by restricting input to only be based on this location and view direction and use a fully connected network to model this function. It also employs hierarchical volume sampling, utilizing a coarse and fine network to more efficiently and effectively sample rays in areas which have the highest contributions (similar to multiple importance sampling MIS).
+
+  Since this approach was only designed for static scenes, further strides have been made to adapt this NeRF approach for more dynamic scenes.
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Neural Radiance Caching (NRC)
+]
+
+#p(2)[
+
+  Traditional techniques for real-time global illumination have significant issues when dealing with high-frequency details due to the discretization artifacts from spatial hashing structures and irradiance probes and can also have slow update times for dynamic scenes. To resolve this, there has been a push to use path tracing techniques instead which can deal with this high-frequency detail. There have been advancements in improving the speed of path tracing techniques, all without sacrificing quality, in real-time rendering applications.
+
+  Researchers at NVidia @NRC have created a technique called *Neural Radiance Caching (NRC)*, as a way to perform path tracing to improve the realism of global illumination without suffering from drawbacks from traditional techniques. It replaces the prior offline neural rendering techniques with small fully fused Multi-Layer Perceptron (MLP) networks that are trained online during the rendering process itself. This means that instead of the previously pretrained networks, which require length training times, these small MLPs are initialized with random weights and learn along side rendering. By leveraging a self-training approach, the network can learn from noisy path-traced samples generated by the previous path vertex, and thus can effectively simulate infinite bounces.
+
+  By generalizing via adaptation rather than a pre-learned network, it is robust to dynamic scenes and can simulate changing lighting or geometry. This network also achieves SOTA noise reduction and performance, with an overhead of \~2.6 ms per frame.
 ]
 
 #heading(depth: 2)[
@@ -179,10 +335,29 @@
   Instant Neural Graphics Primitives (Instant-NGP)
 ]
 
+#p(2)[
+  A group of Nvidia researchers @nvidia_instant_ngp developed a new parametric encoding of positions, which helps address some of the performance bottlenecks of pure MLP-based representations (without parametric encodings) called Instant Neural Graphics Primitives (Instant-NGP). This replaces the singular (and hierarchical volume) large and deep MLP of NeRF with a hybrid architecture comprising of a "Multi-resolution hash encoding" network which performs the positional parametric encoding, and a much smaller and faster MLP to infer the final directional emitted color $vb(c)$ and the volume density $sigma$.
+
+  Instead of querying the network for the entire signal, this new architecture maps the input coordinates $vb(x) = (x, y, z)$ to a set of trainable feature vectors stored in hash tables of multiple resolution levels. These multi-level features are interpolated and concatenated, together with auxiliary data, to be passed into the smaller MLP.
+
+  This approach reduces the computational complexity significantly, which improves both training and inference time, as the multi-resolution hash table lightens the burden of storing and representing high-frequency spatial detail and allows the smaller MLP to act simply as a decoder. For volumetric applications specifically, this paper demonstrates that this encoding is task-agnostic, meaning it can act as a generic neural graphics primitive/performs well in any scene.
+
+  The study also goes beyond just comparing against traditional NeRF approaches and also outperforms other techniques such as "Neural Radiance Caching" @NRC, where it learned to cache 5D light field from Monte Carlo path tracer in real-time. The authors note that the architecture's ability to handle hash collisions via SGD; gradients from more "important" samples (surfaces which contribute more to the final luminance) dominate optimization, allowing the network to allocate resources to relevant regions of the volume. This adaptability makes this an ideal architecture for approximating complex, non-uniform scattering functions in participating media.
+]
+
 
 #heading(depth: 2)[
   #set text(size: 11pt)
-  Related Work
+  SeaThru NeRF
+]
+
+#p(2)[
+  While the NeRF model described in @nerf_model_section has revolutionized novel view synthesis for scenes without medium participation, their application to scenes that are underwater or foggy remains challenging due to the added complexity of modelling light interacting with participating medium. In @PBRT_section, we saw that light can interact in two main ways within a medium, scattering and absorption. Standard NeRF typically fails to consider these conditions and typically model these volumes as semi-transparent solid geometry, but this leads to blurry or inaccurate models. To address this, researchers @SeaThru_Nerf have proposed a new architecture, called SeaThru-NeRF, which is an extension of the NeRF model that incorporates an additional network.
+
+  Unlike standard NeRF approaches that conflate surface radiance with path (volume) radiance, their method decomposes the scene into separate "object" and "medium" fields, parameterized by separate neural networks. By learning to separate the medium property values (such as the attenuation and scattering coefficients $sigma_a$ and $sigma_s$) with surface properties (such as color and density) without requiring "clear" GT images without the medium interactions.
+
+
+  Typically the medium network is a lot smaller and thinner typically 64 neurons per layer and sometimes as thing as 1 layer in environments with homogeneous volumes whereas the object model is typically larger. The input encoding typically shares the same one as traditional NeRF approaches. This achieves SOTA restoration and depth estimation, even in the face of scattering media. This architecture allows for a unique techinque of rendering the scene as if the medium were removed entirely- surpassing the limitations of traditional models in low-vis environments.
 ]
 
 
@@ -192,9 +367,61 @@
   Methodology and Implementation
 ]
 
+#p(1)[
+  This project will be broken into various phases of work to help narrow down the focus:
+  #list(
+    [*Dataset Generation*],
+    [*Data Validation and Cleaning*],
+    [*Training and Hyperparameter Evaluation*],
+    [*Training Visualization*],
+    [*Pipeline-Model Integration*],
+    [*Inference*],
+    [*Evaluation*],
+  )
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Data Generation
+]
+
+#p(2)[
+  The first thing I focused on was simply considering what exactly I wanted the model to do within the context of the Wavefront/GPU pipeline. For this project, the model should focus on being able to output data that will help predict values outputted or used within the *media scattering* kernel, and thus the inputs to this model are:
+  - Ray origin + direction
+  - Maximum $t$ value until ray intersection
+  - $beta$ transmission value (explained later)
+
+  The outputs, or targets for the model, are:
+  - Intrinsic emitted Radiance ($L_"intrinsic"$) added from the medium
+  - Transmittance $T$ of the ray after passing through the medium
+
+  //!TODO: Consider using a table here
+
+  The outputs of this model are the $T$ transmittance values of the ray describing the proportion of incident radiance has been attenuated and $L_e$ the radiance added from volume emission (such as from fire). The other important values that needs to be extracted at the end is calculated from the $beta$ transmission value before and after the current ray was traced. The reason for that comes from how $beta$ is used in conjunction with $L_e$ and calculating throughput/transmittance. Firstly, the beta acts as an "accumulated throughput" of the ray along its journey around the scene. In pbrt during medium scattering sampling, it samples $T_"maj"$ of the medium and the radiance emitted is scaled by this $beta$ value. Thus, the $L_e$ output from this kernel is the scaled radiance dependent on the path the ray has taken previously (so light sources and scattering effects have less of an impact on a ray further along the path since it would be "dimmer"). We need to train this to calculate the intrinsic brightness the medium adds to rays irrespective of the rays previous bounces, which requires dividing $L_e$ with the current $beta$ value:
+
+  $
+    L_"intrinsic" = (L_e)/beta_"current"
+  $
+
+  Similarly, the transmittance $T$ will need to be calculated from both the $beta_"current"$ before the sample medium scattering kernel started and the $beta_"new"$ calculated via scaling by $T_"maj"$ as the ray is traced through the medium. Thus to calculate the $T$ transmittance of the ray through the medium only, we need to divide the fraction of light that comes out of the medium by the fraction of light that entered it.
+
+  $
+    T = beta_("new") / beta_("current")
+  $
+
+
+
+  During inference we can then rescale the predicted radiance
+
+  //!TODO: add the consideration that this may lead to slightly brighter rays, since in the regular sampling, the beta value is constantly updated whilst in our inference model, it is scaled only once per medium scattering/intersection
+
+  //!TODO: set a clearer explanation of what $beta$ is from pbrt-v4 book
+]
 
 #heading(depth: 1)[
   #set text(size: 12pt)
   Results and Evaluation
 ]
 
+#bibliography("refs.bib", style: "ieee")
