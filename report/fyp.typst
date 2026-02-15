@@ -3,6 +3,7 @@
 #set page(numbering: "1 of 1", number-align: right)
 #show heading.where(level: 2): it => pad(left: 0.5em, it)
 #show heading.where(level: 3): it => pad(left: 1em, it)
+#show heading.where(level: 4): it => pad(left: 1.5em, it)
 
 // Custom bindings
 #let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
@@ -112,19 +113,19 @@
   #list(
     [
       #text(size: 11pt)[*Neural Radiance Fields (NeRFs)*]\
-      Introduced by /*!TODO: Insert reference here! */ <>, NeRF proved that scenes can be represented by continuous functions of spatio-directional coordinates to color and density, showing networks can learn high-frequency vertex data.
+      Introduced by @mildenhall2020nerfrepresentingscenesneural Mildenhall et al, NeRF proved that scenes can be represented by continuous functions of spatio-directional coordinates to color and density, showing networks can learn high-frequency vertex data.
     ],
     [
       #text(size: 11pt)[*Instant Neural Graphics Primitives (Instant-NGP)*]\
-      /*!TODO: Insert reference here! */ <> addressed performance bottlenecks of NeRF by replacing deep MLPs that learned that scene data with a multi-resolution hash encoding. This architecture allows for near-instant inference of feature vectors, which will be important given the number of required paths queried in PBRT-v4
+      Müller et al @nvidia_instant_ngp addressed performance bottlenecks of NeRF by replacing deep MLPs that learned that scene data with a multi-resolution hash encoding. This architecture allows for near-instant inference of feature vectors, which will be important given the number of required paths queried in PBRT-v4
     ],
     [
       #text(size: 11pt)[*Neural Radiance Caching (NRC)*]\
-      This technique demonstrated that relatively small MLPs can be trained "_online_" during rendering to cache radiance, showcasing that inference can be fast enough to run within a path tracing loop
+      Müller et al @NRC technique demonstrated that relatively small MLPs can be trained "_online_" during rendering to cache radiance, showcasing that inference can be fast enough to run within a path tracing loop
     ],
     [
       #text(size: 11pt)[*SeaThru-NeRF*]\
-      Slightly different to those above, this work explicitly separated an "object" and "medium" network, setting the precedence of separating surface and volume scattering into their own networks in order to handle participating media like fog or water.
+      Slightly different to those above, a group of reasearchers @SeaThru_Nerf created an architecture that explicitly separated an "object" and "medium" network, setting the precedence of separating surface and volume scattering into their own networks in order to handle participating media like fog or water.
     ],
     spacing: 1em,
   )
@@ -371,9 +372,9 @@ $
   This project will be broken into various phases of work to help narrow down the focus:
   #list(
     [*Dataset Generation*],
-    [*Data Validation and Cleaning*],
-    [*Training and Hyperparameter Evaluation*],
-    [*Training Visualization*],
+    [*Data Visualization and Normalization*],
+    [*Validation Testing and Hyperparameter Evaluation*],
+    [*Training and Model Visualization*],
     [*Pipeline-Model Integration*],
     [*Inference*],
     [*Evaluation*],
@@ -383,7 +384,7 @@ $
 
 #heading(depth: 2)[
   #set text(size: 11pt)
-  Data Generation
+  Dataset Generation and Loading
 ]
 
 #p(2)[
@@ -396,7 +397,7 @@ $
   - Intrinsic emitted Radiance ($L_"intrinsic"$) added from the medium
   - Transmittance $T$ of the ray after passing through the medium
 
-  //!TODO: Consider using a table here
+  //!TODO: Consider using a table here/diagram like in other papers
 
   The outputs of this model are the $T$ transmittance values of the ray describing the proportion of incident radiance has been attenuated and $L_e$ the radiance added from volume emission (such as from fire). The other important values that needs to be extracted at the end is calculated from the $beta$ transmission value before and after the current ray was traced. The reason for that comes from how $beta$ is used in conjunction with $L_e$ and calculating throughput/transmittance. Firstly, the beta acts as an "accumulated throughput" of the ray along its journey around the scene. In pbrt during medium scattering sampling, it samples $T_"maj"$ of the medium and the radiance emitted is scaled by this $beta$ value. Thus, the $L_e$ output from this kernel is the scaled radiance dependent on the path the ray has taken previously (so light sources and scattering effects have less of an impact on a ray further along the path since it would be "dimmer"). We need to train this to calculate the intrinsic brightness the medium adds to rays irrespective of the rays previous bounces, which requires dividing $L_e$ with the current $beta$ value:
 
@@ -412,12 +413,203 @@ $
 
 
 
-  During inference we can then rescale the predicted radiance
+  During inference we can then rescale the predicted radiance by doing the inverse operation.
 
   //!TODO: add the consideration that this may lead to slightly brighter rays, since in the regular sampling, the beta value is constantly updated whilst in our inference model, it is scaled only once per medium scattering/intersection
 
   //!TODO: set a clearer explanation of what $beta$ is from pbrt-v4 book
 ]
+
+#p(2)[
+  Due to way PBRT operates on sampled wavelengths and not RGB output directly, both radiance $L_e$ and Transmittance $T$ needs to be recorded by converting them to RGB values, through a `ToOutputRGB` call.
+
+  The format in which I saved my training data was a custom `.bin` file. I cannot save them as their textual representations as that would require more space and would lose precision and so I saved them in binary form. The format of those `.bin` files is shown in `src/pbrt/wavefront/copy.cpp`.
+
+  /*!TODO: Provide snippet of where in the code i modified*/
+]
+
+#heading(depth: 3)[
+  #set text(size: 11pt)
+  Rendering Multiple Orientations
+]
+
+
+#p(3)[
+  In order for the network to learn the scene representation, it is necessary to gather samples generated from multiple orientations around the scene. Thus, I modified PBRT to allow for this and added command line arguments in order to specify how many orientations to render in. \
+
+  Though seemingly trivial, it required a large change in PBRT's codebase as the program assumes it will only render from one camera perspective at a time and exits, allowing the OS to reclaim resources. However, for the purposes of the project, rendering from multiple novel orientations is required and thus significant cleanup was required due to the fact that creating resources for new novel views rebuilt certain scenes, materials and Optix structures /*!TODO: Provide examples here*/.
+
+  Once this work was done, all I needed was to modify the camera creation code in generate these novel orientations. I decided for this project to just sample positions in the hemisphere around the origin with a radius that is the distance of the camera to the origin and reorientate the camera to look towards the origin. The reason for this is because for the scenes considered for this project, I decided to only consider volumes which are centered at the origin just for ease of gathering data and it also ensured that from whichever positioned it sampled, it would be easy to include the majority of the volume.
+]
+
+#p(3)[
+  The number of orientations I decided to give for each set are the following:
+  - Training set: $5$ orientations $approx$ 17GB
+  - Validation set: $3$ orientations $approx$ 12GB
+  - Test set : $3$ orientations $approx$ 12 GB
+]
+
+#p(3)[
+  The reason for the above was because I needed to create the functionality in Instant-NGP to load my custom `.bin` files and the functionality to perform validation testing so I would prefer for the dataset to be able to fit into VRAM/RAM. The GPU I had access to (NVidia A5000) only has about 24GB of VRAM which limited the size of these datasets. However, there is evidence that training an Instant-NGP model does not require that much data /*!TODO: Get evidence for this*/ and thus 17GB of training data will be sufficient.
+]
+
+#heading(depth: 3)[
+  #set text(size: 11pt)
+  Instant-NGP and Data Loading
+]
+
+#p(3)[
+  I decided to modify the C++/CUDA code in Instant-NGP for my project as opposed to the python bindings that are available. There are 2 reasons for this:
+  - *Custom data pipeline*: the proposed model is very different from the built in modes in Instant-NGP and the bindings will not provide the flexibility that the lower level CUDA code would.
+  - *PBRT integration*: when I eventually integrate the model, it will be much easier to do this in the language that PBRT is written in, as I can rely on Instant-NGP to create and load the tiny-cuda-nn model itself.
+
+
+  Instant-NGP performs all its data loading, model training/inference and model checkpoint loading/saving via a `Testbed` class. Testbed has different modes for SDF, NeRF, Volume and Images models but due to the custom data that I feed in, specifically with the `tMax` input and $L_e$ and $T$ outputs, I decided to extend `Testbed` in order to handle my custom data pipeline by adding a new `ETestbedMode::PBRT` value. This also required creating custom loading functions, adding `train_pbrt_prep` and `train_pbrt` functions as well as adding some member variables to hold tracking dataset properties and hold buffer pointers to the training, validation and test sets. Luckily, this did not require changing the way the network and kernels were setup, as they are created by specifying a `json` configuration file. I didn't feel the need to create a child class for this different mode since this was not the design choice made in Instant-NGP and only changes mode based on an enum member variable.
+
+  Initially the loading functions only dealt with training data, but I then later added a parameter to specify the type of dataset to load via an enum value. It will first load the file, read the number of samples and allocate a CPU buffer, copy the data from the file, perform some preparation steps and normalization and then upload the data to the GPU if there is space whilst keeping track of the number of samples loaded. The specifics are detailed in `testbed.h`, `testbed.cu` and `main_nn.cu`.
+
+  At first, all data was eventually loaded into VRA but during training I realized that the test set would not fit simultaneously with training data was. Therefore, I changed it to instead use *pinned CUDA memory* which marks a region of CPU-side memory to be shared with the GPU to allow quicker access and not require it to be loaded into the already full VRAM. This is slightly slower than having it in VRAM but the cost is alleviated by the fact that test data won't be accessed every training iteration and only at a lower set frequency.
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Data Preparation and Visualization
+]
+
+#heading(depth: 3)[
+  Data Visualization
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Data Normalization
+]
+
+
+#p(3)[
+  As with any machine learning task, preparing the data is crucial to allow the model to learn anything. Typically, inputs will need to be normalized or mapped to a specific range of values in order to prevent gradients from exploding or vanishing during SGD and optimization. This is the case in Instant-NGP. Below is a table containing information on how the data was normalized:
+]
+
+#p(1)[
+
+  #table(
+    columns: (auto, auto, auto, auto, auto, auto),
+    align: horizon,
+    table.header([*Input*], [Input Range], [Normalized Range], [*Output*], [Input Range], [Normalized Range]),
+    [
+      _Ray Position_ $(x, y, z)$
+    ],
+    [
+      Maximum of scene bounds
+    ],
+    [
+      $[-1,1]$
+    ],
+    [
+      _RGB Radiance_ $L_e (r, g, b)$
+    ],
+    [
+      $[0, "Max float value"]$
+    ],
+    [
+      #text(size: 8pt)[
+        $[0,ln("Max" L_e + 1)]$
+      ]
+    ],
+
+    [
+      _Ray Direction_ $(x, y, z)$
+    ],
+    [
+      [-1, 1]
+    ],
+    [
+      [0, 1]
+    ],
+    [
+      _RGB Transmittance_ $T (r, g, b)$
+    ],
+    [
+      $[0, 1]$
+    ],
+    [
+      $[0, 1]$
+    ],
+
+    [
+      `tMax`
+    ],
+    [
+      $[0,$"Max Scene bounds"$]$
+    ],
+    [
+      $[0, 1]$
+    ],
+  )
+]
+
+
+#heading(depth: 4)[
+  #set text(size: 9.5pt)
+  Ray Position
+]
+
+#p(4)[
+  In Instant-NGP, similar to the other modes such as NeRF and Volume, require ray positions to be normalized to be between $[-1, 1]$ and in fact in `nerf_loader.cu` to be compatible with the multi-resolution hash grid /*!TODO: Find the reason for this*/, it performs this normalization by dividing by the scene AABB. Therefore, during loading, I also need to note down the bounds of the scene in order to normalize. Below is a table of
+]
+
+#heading(depth: 4)[
+  #set text(size: 9.5pt)
+  Ray Direction
+]
+
+#p(4)[
+  Similarly for Ray directions in other Instant-NGP modes, they require to be normalized. Though, they need to be normalized to be between $[0, 1]$. The reason for this is because in Instant-NGP, directions are typically not encoded in the hashgrid, but instead in *Spherical Harmonics*, /*!TODO: Look up and write a bit about spherical harmonics*/ which is a different encoding but does well for directions.
+]
+
+#heading(depth: 4)[
+  #set text(size: 9.5pt)
+  `tMax`
+]
+
+#p(4)[
+  tMax is an auxilliary input, but to prevent the final MLP from being overly reliant on this input and having it dominated, it requires normalization as well, which can easily be done by finding the max value of `tMax` within the dataset and dividing all `tMax` values by this. However, some care needs to take place as in PBRT, tMax can actually be arbitrarily large for cases of "escaped rays". Care needs to be selected to ensure that the max `tMax` value doesn't clamp rays that are still traveling within the medium itself. In this case, I performed clamping of a `tMax` value of $50$ which is justified in the Data Visualization section.
+
+  /*!TODO: Ensure I add a note explaining why I clamped it to just 50 (since the 160 is likely escaped rays and we don't want the network to learn "escaped rays"*/
+]
+
+#heading(depth: 4)[
+  #set text(size: 9.5pt)
+  Radiance $L_e$
+]
+
+#p(4)[
+  The outputs for the model need to be carefully normalized in order for the model loss values to meaningfully update the model weights through SGD. However, because of the fact that radiance values themselves can be arbitrarily large due to radiance being able to represent High Dynamic Range (HDR), if there are any fireflies in the training data due to the Monte Carlo Estimation, /*!TODO: Make sure to add Monte Carlo estimation in the theoretical background*/ linear normalization $L/L_"max"$ preserves extreme sparsity of the emission distribution and thus empty space with emission $0$ and some less emitting parts of the explosion which may have a radiance of $1$ would be overshadowed by the core of the explosion or part with extreme radiance emission (say $100$) so after the linear scaling the less emitting smoke would have a value of $10^(-3)$ and the core would be $1.0$. Thus the network will overfit to those higher peaks and ignore the lower-intensity radiances.
+
+  Instead, I employed logarithmic scaling by transforming radiance values into $y=ln(L + 1)$ to compress that high dynamic range. This ensures the loss function minimizes relative error instead of absolute. This ensures that the network has enough capacity to learn both high and low emission as opposed to higher emission dominating. It also keeps the output range to be in a similar magnitude as Transmittance to ensure it doesn't dominate (Adam optimizer deals well with losses with similar magnitude). The $+1$ term ensures stability for areas that don't have emission.
+]
+
+#heading(depth: 4)[
+  #set text(size: 9.5pt)
+  Transmittance $T$
+]
+
+#p(4)[
+  For transmittance, we take the approach to ensure that it is in the range $[0, 1]$ as it only makes sense if we consider it as a fraction of light that transmits through. However, due to the logging code and how I performed calculations to calculate the isolated transmittance within one ray sampling step in `media.cpp`
+  ```cpp
+  Float pr = T_maj[0] * mp.sigma_s[0];
+  beta *= T_maj * mp.sigma_s / pr;
+  .
+  .
+  .
+  SampledSpectrum T_target = beta / beta_before;
+  ```
+  causes some $T$ values to have a higher transmittance value $1$. For example, if the path already had a $beta=0.5$ meaning the cumulative throughput before this bounce was only 0.5 and then the beta after was calculated to be 0.8 (due to random sampling and probability above) /*!TODO: Look in pbrt-v4 to confirm this*/ then the overall transmittance value is calculated to be $>1$. However, this may not only cause divergence in training, but also doesn't make physical sense. Therefore, I chose to clamp these values to 1 as this will still allow the network to learn what should phyically happen other than this noise due to random sampling.
+]
+
+
+
+
 
 #heading(depth: 1)[
   #set text(size: 12pt)
