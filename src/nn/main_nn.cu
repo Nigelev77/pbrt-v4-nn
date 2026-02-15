@@ -1184,6 +1184,15 @@ int main(int argc, char** argv)
         }
     };
 
+    Flag T_slice_flag
+    {
+        parser,
+        "T_SLICE_FLAG",
+        "Whether to output transmittance slices",
+        {
+            "t-slice"
+        }
+    };
     // Flag no_gui_flag{
 	// 	parser,
 	// 	"NO_GUI",
@@ -1469,8 +1478,16 @@ int main(int argc, char** argv)
         testbed.m_train = false;
         for(int i = 0; i < 20; ++i)
         {
-            std::string filename = fmt::format("{}_{}.png", path.c_str(), i);
-            testbed.dump_slice_img(filename, (float)(i+4) * (0.5f/20.f));
+            std::string filename;
+            if(T_slice_flag)
+            {
+                filename = fmt::format("{}_{}_T.png", path.c_str(), i);
+            }
+            else
+            {
+                filename = fmt::format("{}_{}.png", path.c_str(), i);
+            }
+            testbed.dump_slice_img(filename, (float)(i+4) * (0.5f/20.f), T_slice_flag);
         }
         return 0;
     }

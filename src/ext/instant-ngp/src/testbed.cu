@@ -6321,7 +6321,7 @@ void Testbed::compute_and_save_png(
         write_stbi(filename, (int)res.x, (int)res.y, n_channels_to_save, img_data.data());
 }
 
-void Testbed::dump_slice_img(const fs::path& path, float slice_z)
+void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmittance)
 {
 	if(!m_network)
 	{
@@ -6369,17 +6369,37 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z)
 	std::vector<float> img_rgb(n_pixels * 3);
 	for(uint32_t i = 0; i < n_pixels; ++i)
 	{
-		float log_r = cpu_output[i * 6 + 0];
-		float log_g = cpu_output[i * 6 + 1];
-		float log_b = cpu_output[i * 6 + 2];
 
-		float r = std::max(0.f, std::exp(log_r) - 1.f);
-		float g = std::max(0.f, std::exp(log_g) - 1.f);
-		float b = std::max(0.f, std::exp(log_b) - 1.f);
+		float raw_r = cpu_output[i * 6 + T_OFFSET + 0];
+		float raw_g = cpu_output[i * 6 + T_OFFSET + 1];
+		float raw_b = cpu_output[i * 6 + T_OFFSET + 2];
 
-		img_rgb[i * 3 + 0] = r / (1.f + r);
-		img_rgb[i * 3 + 1] = g / (1.f + g);
-		img_rgb[i * 3 + 2] = b / (1.f + b);
+		float r, g, b;
+
+		if(isTransmittance)
+		{
+			float r_op = 1.f - raw_r;
+			float g_op = 1.f - raw_g;
+			float b_op = 1.f - raw_b;
+
+			img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+			img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+			img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+		}
+		else
+		{
+			float log_r = cpu_output[i * 6 + 0];
+			float log_g = cpu_output[i * 6 + 1];
+			float log_b = cpu_output[i * 6 + 2];
+			r = std::max(0.f, std::exp(log_r) - 1.f);
+			g = std::max(0.f, std::exp(log_g) - 1.f);
+			b = std::max(0.f, std::exp(log_b) - 1.f);
+			img_rgb[i * 3 + 0] = r / (1.f + r);
+			img_rgb[i * 3 + 1] = g / (1.f + g);
+			img_rgb[i * 3 + 2] = b / (1.f + b);
+		}
+
+
 	}
 
 	tlog::info() << "Dumped slice to " << native_string(path);
