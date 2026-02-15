@@ -27,4 +27,8 @@ flame_*.png
 
 check_optix*
 
-imgui.ini*.msgpack
+imgui.ini
+*.msgpack
+
+
+transmittance_imgs/*
