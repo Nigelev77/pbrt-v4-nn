@@ -269,7 +269,7 @@ void load_dataset_to_testbed_fixedsize(Testbed& testbed, const fs::path& path, D
                 rayO = vec3(0.f, 0.f, 0.f);
             }
             
-            constexpr float MAX_SCENE_DIST = 50.f;
+            constexpr float MAX_SCENE_DIST = 60.f;
             float tMaxVal = std::min(bs.tMax, MAX_SCENE_DIST);
             if(!std::isfinite(bs.tMax))
             {
@@ -719,7 +719,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
             // Calculate scene BB to normalize rays
             vec3 rayO = vec3(bs.o[0], bs.o[1], bs.o[2]);
 
-            constexpr float MAX_SCENE_DIST = 50.f;
+            constexpr float MAX_SCENE_DIST = 60.f;
             float tMaxVal = std::min(bs.tMax, MAX_SCENE_DIST);
 
             if(normalize_data)

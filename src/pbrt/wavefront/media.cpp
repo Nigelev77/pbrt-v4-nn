@@ -119,69 +119,10 @@ namespace pbrt
                         PBRT_DBG("absorbed\n");
                         beta = SampledSpectrum(0.f);
                         // Tell the medium to stop traversal.
-
-
-                        // TODO: Figure out if its better to not log this ray for non-surface interactions (since it could continue onto more medium scattering)
-                        // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
-                        // which deals with newly scattered rays within the medium. For now I just handle an actual interaction
-                        //                         PendingPixelSample sample;
-                        //                         sample.ray = Ray(p, -ray.d);
-                        //                         sample.beta = beta;
-                        //                         sample.isVolumetric = scattered ||
-                        //                         !beta || !r_u || w.depth == maxDepth;
-                        //                         sample.pixelIdx = w.pixelIndex;
-                        //                         SampledSpectrum Lp =
-                        //                         pixelSampleState.L[w.pixelIndex];
-                        //                         sample.L = Lp + L;
-                        //                         sample.depthIdx = wavefrontDepth;
-
-                        // #ifdef PBRT_IS_GPU_CODE
-                        //                         int index =
-                        //                         atomicAdd(pendingSamplesCnt, 1);
-                        // #else
-                        //                         int index =
-                        //                         __sync_fetch_and_add(pendingSamplesCnt,
-                        //                         1);
-                        // #endif
-                        //                         if(index < pendingSamplesMaxSize)
-                        //                         {
-                        //                             // Do realloc
-                        //                             pendingSamples[index] = sample;
-                        //                         }
-                        // rayLogQueue->Push(sample);
-
                         return false;
                     }
                     else if (mode == 1)
                     {
-                        // TODO: Figure out if its better to not log this ray for non-surface interactions (since it could continue onto more medium scattering)
-                        // For now I will do it anyway. However, I need to consider looking at SampleMediumScattering's one
-                        // which deals with newly scattered rays within the medium. For now I just handle an actual interaction 
-                        // TODO: Also figure out if i want the beta to be logged before or after it is updated
-                        //                         PendingPixelSample sample;
-                        //                         sample.ray = Ray(p, -ray.d);
-                        //                         sample.beta = beta;
-                        //                         sample.isVolumetric = scattered ||
-                        //                         !beta || !r_u || w.depth == maxDepth;
-                        //                         sample.pixelIdx = w.pixelIndex;
-                        //                         SampledSpectrum Lp =
-                        //                         pixelSampleState.L[w.pixelIndex];
-                        //                         sample.depthIdx = wavefrontDepth;
-                        //                         sample.L = Lp + L;
-                        // #ifdef PBRT_IS_GPU_CODE
-                        //                         int index =
-                        //                         atomicAdd(pendingSamplesCnt, 1);
-                        // #else
-                        //                         int index =
-                        //                         __sync_fetch_and_add(pendingSamplesCnt,
-                        //                         1);
-                        // #endif
-                        //                         if(index < pendingSamplesMaxSize)
-                        //                         {
-                        //                             // Do realloc
-                        //                             pendingSamples[index] = sample;
-                        //                         }
-                        // rayLogQueue->Push(sample);
 
                         // Scattering.
                         PBRT_DBG("scattered\n");
