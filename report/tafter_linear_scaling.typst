@@ -1,0 +1,296 @@
+//Show rules
+#set page(margin: (left: 1cm, right: 1cm, top: 1cm, bottom: 1cm))
+#set page(numbering: "1 of 1", number-align: right)
+#set text(font: "Libre Baskerville")
+#show heading.where(level: 2): it => pad(left: 0.5em, it)
+#show heading.where(level: 3): it => pad(left: 1em, it)
+#show heading.where(level: 4): it => pad(left: 1.5em, it)
+#show heading.where(level: 1): it => pad(left: 0em, it)
+
+// Custom bindings
+#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
+#let vb(val) = math.bold(math.upright(val))
+#let image-grid(..paths, columns: 3) = grid(
+  columns: (1fr,) * columns,
+  gutter: 1em,
+  ..paths.pos().map(path => image(path, width: 100%))
+)
+
+#align(center)[
+  #text(1.25em)[*T_After notes*]
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Figuring out what the Value of `T_After` actually represents
+]
+
+#p(1)[
+  After figuring out what the T_After I collected actually represents, I found I was misguided previously about what it represents.
+
+  The code was:
+
+  #figure(
+    [
+      ```cpp
+
+      Float pr = T_maj[0] * mp.sigma_s[0];
+      beta *= T_maj * mp.sigma_s / pr;
+      r_u *= T_maj * mp.sigma_s / pr;
+
+      ```
+    ],
+    caption: [Spectral MIS sampling],
+  )<spectral_MIS>
+  And then later...
+  ```cpp
+  if (!scattered && beta)
+  {
+      beta *= T_maj / T_maj[0];
+      r_u *= T_maj / T_maj[0];
+      r_l *= T_maj / T_maj[0];
+  }
+  ```
+
+  And the calculation I performed at the end is:
+
+  $
+    T_"ray segment" = beta_"after" / beta_"before"
+  $
+
+  So what I thought was the transmission just for the ray segment that was sampled, it was actually something different. Due to the extra `/ pr`, it actually represented a sort of Weighted Throughput based on Importance Sampling.
+
+  So instead what I calculated was:
+  $
+    T_"MIS Weighted" = beta_"after" / beta_"before"
+  $
+
+]
+
+#heading(depth: 1)[
+  #set text(size: 11pt)
+  Throughput Ratio vs Pure Transmittance
+]
+
+
+#p(1)[
+  #show link: underline
+  #show link: highlight
+
+  Initially, I thought it predicted just a Pure transmittance, meaning it is the fraction of radiance that exits the medium from the radiance that enters. So a transmittance of 0.5 means only half the radiance that entered exits. This is also per wavelength (or per r, g, b) so some mediums would let more red light through than say blue or green.
+
+  However, from the calculation above, it actually calculates a *weighted throughput ratio* rather than pure transmittance. This ratio includes:
+
+  1. *Physical transmittance*: $e^(-sigma dot d) in [0,1]$
+  2. *Importance sampling corrections*: wavelength-dependent weights that
+    can exceed 1.0 to maintain unbiased estimation
+  3. *RGB color space conversion*: spectral resampling artifacts
+
+  This can be seen from the visualization of the data:
+  #image("t_after_graph.png")
+
+  From an analysis of training data from a subset of 75,000 samples, we can see that there are many samples in which the weighted ratio is higher than 1, up to 1.6, particularly in the
+  blue channel. This is expected for pbrt's ratio tracking integrator, where
+  importance sampling weights correct for sampling bias.
+
+
+  However, PBRT only picks a single wavelength to perform to compute PDF to sample from that decides the type of scattering:
+
+  ```cpp
+  // Compute probabilities for each type of scattering.
+  Float pAbsorb = mp.sigma_a[0] / sigma_maj[0];
+  Float pScatter = mp.sigma_s[0] / sigma_maj[0];
+  Float pNull = std::max<Float>(0, 1 - pAbsorb - pScatter);
+  PBRT_DBG("Medium scattering probabilities: %f %f %f\n", pAbsorb,
+      pScatter, pNull);
+
+  // And randomly choose one.
+  int mode = SampleDiscrete({ pAbsorb, pScatter, pNull }, uMode);
+  ```
+
+  However, this would become *biased* towards the PDF of the first wavelength considered in SampledWavelengths (say 450nm). But we want to produce an unbiased estimator (to ensure energy is not created/destroyed) and would want on average for it to be unbiased/correct. Therefore, later in @spectral_MIS it divides by `pr`, which can lead to situations where the the spectral MIS portion of `T_maj * mp.sigma_s / pr` is greater than 1 if for example it is very uncommon for the first wavelength to scatter but common for longer wavelengths (like red) to scatter. Because the event `pr` for the first wavelength is uncommon it will boost this ray's contribution to ensure it is unbiased/to compensate.
+
+  All of this is explained in #link("https://pbr-book.org/4ed/Light_Transport_II_Volume_Rendering/Volume_Scattering_Integrators#x2-ChromaticMedia")[Chromatic Media] in the PBRT Book
+
+
+  I then perform a `ToOutputRGB` call which then converts these into RGB signals instead of the (typically 4) wavelengths according to the colourspace which by default is the CIE xyz colorspace. This boosts blue wavelengths even more helping to cause the 1.6 Transmission value as shown in the histogram above.
+]
+
+
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Results and Comparisons
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  MSE and PSNR Comparison
+]
+
+#p(2)[
+  To compare with the results shown in test error MSE and PSNR metrics, using linear scaling actually provided an increase of approximately 3 dB in PSNR and a decrease of approximately 0.02 in MSE. Here are graphs showcasing the clamped and linear scaling metrics:
+
+  #image-grid(
+    "../images/graphs/good_12_19_1-38_shared_testerror.png",
+    "../images/graphs/good_8_13_64_2_shared_testerror.png",
+    "../images/graphs/ok_8_19_purple_shared_testerror.png",
+  )
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Slice Visualization
+]
+
+#p(2)[
+  To compare with the slices from Visualization this is some of the results:
+
+  #image-grid(
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_8.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_9.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_10.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_11.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_12.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_13.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_14.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_15.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_16.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_17.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_18.png",
+    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_19.png",
+    columns: 6,
+  )
+
+  #image-grid(
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_8.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_9.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_10.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_11.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_12.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_13.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_14.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_15.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_16.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_17.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_18.png",
+    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_19.png",
+    columns: 6,
+  )
+
+
+  #image-grid(
+    "../images/radiance_imgs/ok_8_19_purple_8.png",
+    "../images/radiance_imgs/ok_8_19_purple_9.png",
+    "../images/radiance_imgs/ok_8_19_purple_10.png",
+    "../images/radiance_imgs/ok_8_19_purple_11.png",
+    "../images/radiance_imgs/ok_8_19_purple_12.png",
+    "../images/radiance_imgs/ok_8_19_purple_13.png",
+    "../images/radiance_imgs/ok_8_19_purple_14.png",
+    "../images/radiance_imgs/ok_8_19_purple_15.png",
+    "../images/radiance_imgs/ok_8_19_purple_16.png",
+    "../images/radiance_imgs/ok_8_19_purple_17.png",
+    "../images/radiance_imgs/ok_8_19_purple_18.png",
+    "../images/radiance_imgs/ok_8_19_purple_19.png",
+    columns: 6,
+  )
+
+  #image-grid(
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_8_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_9_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_10_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_11_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_12_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_13_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_14_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_15_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_16_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_17_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_18_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_19_T.png",
+    columns: 6,
+  )
+
+  #image-grid(
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_8_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_9_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_10_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_11_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_12_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_13_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_14_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_15_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_16_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_17_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_18_T.png",
+    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_19_T.png",
+    columns: 6,
+  )
+
+
+  #image-grid(
+    "../images/transmittance_imgs/ok_8_19_purple_8_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_9_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_10_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_11_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_12_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_13_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_14_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_15_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_16_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_17_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_18_T.png",
+    "../images/transmittance_imgs/ok_8_19_purple_19_T.png",
+    columns: 6,
+  )
+
+
+]
+
+
+#p(2)[
+  They look very similar but the key thing it learned is that blue does not have a transmittance of 0/opacity of 1 in empty space, but instead it correctly learns where it would be transmitted and where it would not
+
+  The results don't seem to effect radiance values at all and they remain largely similar to the ones for the clamped values. This makes sense, only the transmittance/weighted throughput ratio was affected so radiance should remain unaffected
+]
+
+
+#heading(depth: 1)[
+  Evaluation
+]
+
+#p(1)[
+  Overall, although the radiance remains unaffected, due to the increase in PSNR as well as the improvement of
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  What this means for the model
+]
+
+#p(2)[
+  From the results shown above, I decided its best to pursue linear scaling (dividing by max=1.6) for the final model/for inference rather than clamping, preserving the full distribution and also preserving the overestimates/compensation caused by the spectral MIS in PBRT. This is required to ensure an unbiased estimator in the final output image. This does require adding a new member variable `m_volume_training_tAfter_scale` to ensure the model can rescale for inference.
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  How this changes Inference
+]
+
+#p(2)[
+  It doesn't really change the post calculations from the network outputs during inference:
+  ```cpp
+  Transmittance = network(p, d, tMax)
+  beta *= Transmittance
+  ```
+
+  and all it would be now is
+
+  ```cpp
+  weighted_T = network(p, r, tMax)
+
+  beta *= weighted_T
+  ```
+]
