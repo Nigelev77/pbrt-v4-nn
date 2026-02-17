@@ -79,75 +79,6 @@ using namespace tcnn;
 using namespace args;
 using namespace ngp;
 
-// TODO(main-nn-mirror-plan):
-// 1. Recreate the dataset ingestion pipeline from instant-ngp's load_nerf:
-//    - Parse your per-ray exports (origin, direction, metadata, radiance) and fill Ray arrays + float RGB buffers.
-//    - Normalize rays via result.nerf_ray_to_ngp equivalent so they align with the hash grid coordinate frame.
-// 2. Mirror NerfDataset plumbing:
-//    - Allocate metadata/pixelmemory/raymemory vectors, set n_images based on your chunking, and call set_training_image.
-//    - Populate n_extra_learnable_dims / per-frame metadata for any auxiliary scalars you plan to feed the network.
-// 3. Hook into Testbed/TestbedNerf training loop:
-//    - Ensure has_rays=true so batching pulls explicit rays instead of regenerating from cameras.
-//    - Pipe your radiance buffer into target_rgbs so the loss compares network output to your supervised values directly.
-// 4. Extend network config if needed:
-//    - Adjust encoding dims or attach the extra FC head before backprop to accommodate additional metadata channels.
-
-
-
-
-//Adapting the loader to treat each (position, ray, metadata) tuple with a known radiance as the training sample involves three main moves: redefine the dataset you emit from load_nerf, flow the new attributes through the NerfDataset/Testbed plumbing, and teach the training step to build network inputs directly from those per-ray payloads instead of camera poses.
-//
-//Data Model Shift (nerf_loader.cu + format tooling)
-//
-//Keep the existing JSON envelope but point each frame at your precomputed ray dump instead of RGB images; you can still emit one pseudo-frame per chunk so you reuse the threading and progress logic.
-//Populate LoadedImageInfo::rays for every pixel with a struct that already contains the start position, direction, and any per-ray extras (Ray currently holds o, d, l, t, cone_angle, pdf). If you need more fields (e.g., BRDF roughness, wavelength), extend the Ray definition in include/neural-graphics-primitives/nerf_loader.h and the downstream CUDA structs (nerf_training.cuh) so the GPU kernels can read them.
-//Store the ground-truth radiance directly in the pixel buffer: instead of loading PNGs, serialize your float RGB (or spectral) into an EXR-equivalent block and set image_type = EImageDataType::Float so set_training_image uploads it untouched. If you do not have a texture per ray, you can bypass image loading entirely by synthesizing a buffer and calling result.set_training_image manually with your radiance array.
-//Metadata & Extra Inputs (NerfDataset, TrainingImageMetadata)
-//
-//Use result.n_extra_learnable_dims and metadata[i].light_dir/extra_dims_gpu to feed side-channel values. The NeRF pipeline already supports “appearanceper image; you can repurpose them to carry arbitrary per-ray scalars by writing into TrainingImageMetadata::extra_metadata and bumping n_extra_learnable_dims. embeddings
-//When you call result.nerf_ray_to_ngp(dst.rays[px]), append your extra metadata conversion there (or add a sibling helper) so all rays are normalized to the hash grid’s coordinate system before they reach CUDA.
-//Training Pipeline Touchpoints (testbed_nerf.cu, nerf_training.cuh)
-//
-//Testbed::load_training_data ultimately invokes train_nerf_accumulate_gradients with batches drawn from m_training_data.rays_*. Ensure m_training_data.has_rays stays true so the sampling path uses your explicit origins/directions rather than regenerating rays from camera intrinsics.
-//In generate_training_batch_nerf (inside testbed_nerf.cu), tweak the packing of NerfPosition so it copies your per-ray metadata into NerfNetworkInput::extra_dims (there is already logic guarded by n_extra_learnable_dims). This is where you can, for example, stuff ray differentials, time, or surface parameters that the hash encoding should see.
-//Because you already know the target radiance, disable exposure/tonemapping steps by setting m_nerf.training.dataset.is_hdr = true and bypassing tonemap when copying pixels; otherwise the loader will convert your floats to 8-bit linear.
-//If you want to skip the notion of “frames” entirely, consider creating a parallel loader (e.g., load_raybundle_dataset) that returns a NerfDataset with n_images = num_chunks and metadata[i].resolution = {N,1} so every chunk is just a flat list of rays. The rest of the pipeline treats it identically.
-//Ground Truth Integration & Loss
-//
-//Since the network now trains on precomputed radiance rather than rendered pixels, make sure Testbed::loss_fn_nerf still compares predicted RGB against target_rgbs read from your float buffer; no change needed if you kept the pixel pathway.
-//If radiance is spectral or multi-channel, increase NerfPayload::DIM_COL and adjust network_config.encoding.n_dims_to_encode so the MLP output matches your channel count.
-//Once these hooks are in place, you can iteratively phase out camera-derived math: set dummy transforms in the JSON, keep enable_ray_loading = true, and rely entirely on your ray bundles + radiance arrays. Next steps could be (1) design a compact binary that packs {origin, direction, metadata, radiance}, (2) extend the Ray struct and GPU kernels to read it, and (3) add a bespoke loader entry point (CLI flag or new TestbedMode) so you don’t have to spoof NeRF JSON forever.
-
-
-//!TODO: List & Recommendations
-//Here is the list of things you must do to ensure correct training:
-//
-//1. Normalize Your Latent Parameters (CRITICAL)
-//You need to scale sampleIdx and finalDepth to the [0, 1] range.
-//
-//Why: To prevent numerical instability.
-//How:
-//Find the maximum sample count (e.g., max_samples) and maximum depth (e.g., max_depth) in your dataset.
-//In main_nn.cu, when populating the buffers, convert the values to float and divide by the maximums.
-//Action: Change TrainingImageMetadata pointers to const float* instead of const int*, and perform the normalization in main_nn.cu.
-//2. Verify Network Input Dimensions
-//Ensure the network actually sees these dimensions.
-//
-//How: In testbed.cu, look for the log output starting with Color model:. It should show something like ... + 16 + 2 --> ... (where 2 is your extra dims).
-//Action: Run the program and check the console output.
-//3. Check "One-Blob" Encoding
-//If you are using the default "OneBlob" encoding for the extra dimensions (which is common for latent codes), it expects inputs in [0, 1].
-//
-//Action: Ensure your normalized values are strictly within [0, 1].
-//4. Validate Data Alignment
-//Ensure that sampleIdx and finalDepth actually align with the rays and rgbas.
-//
-//How: In main_nn.cu, you are grouping rays by sampleIdx. Ensure that frameRayData construction preserves the 1:1 mapping between rays[i] and sampleIndices[i]. (Your current code looks correct for this, but double-check your parsing logic).
-//**Recommended Fix for Normalization (
-//in main_nn.cu)**
-//
-//I recommend modifying main_nn.cu to normalize these values before uploading them.
-
 struct __attribute__((packed)) BinaryTrainingSample 
 {
     float o[3];
@@ -693,6 +624,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
     vec3 max_bound = vec3(-1e30f);
     float minTMax = 1e30f;
     float maxTMax = -1e30f;
+    float maxTAfter = -1e30f;
 
     auto& input_cpu_buffer = *input_cpu_ptr;
     auto &target_cpu_buffer = *target_cpu_ptr;
@@ -764,9 +696,11 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
                 }
             }
 
-            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = std::min(1.f, std::max(0.f, bs.T_after[0]));
-            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = std::min(1.f, std::max(0.f, bs.T_after[1]));
-            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = std::min(1.f, std::max(0.f, bs.T_after[2]));
+            maxTAfter = std::max({maxTAfter, bs.T_after[0], bs.T_after[1], bs.T_after[2]});
+
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 0] = bs.T_after[0];
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 1] = bs.T_after[1];
+            target_cpu_buffer[idx * N_VOLUME_TARGET_DIMS + T_OFFSET + 2] = bs.T_after[2];
     };
 
     for(uint64_t i = 0; i < sampleCount; ++i)
@@ -817,6 +751,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
         testbed.m_volume_training_inputs_offset = offset;
         testbed.m_volume_training_inputs_tMax_scale = tMax_scale;
         testbed.m_volume_training_inputs_tMax_offset = tMax_offset;
+        testbed.m_volume_training_inputs_tAfter_scale = maxTAfter;
 
         tlog::info() << "Scene AABB: [" << min_bound.x << ", " << min_bound.y << ", "
                 << min_bound.z << "] to [" << max_bound.x << ", " << max_bound.y << ", "
@@ -825,6 +760,7 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
                 << ", " << offset.y << ", " << offset.z << "]";
         tlog::info() << "Auto-normalizing tmax: scale=" << tMax_scale << " with range=[ "
                 << minTMax << ", " << maxTMax << " ]\n";
+        tlog::info() << "Max T_after is: " << maxTAfter;
 
     }
     else
@@ -844,7 +780,8 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
     for(uint64_t i = 0; i < sampleCount; ++i)
     {
         auto index = i * N_VOLUME_INPUT_DIMS;
-        
+        auto target_index = i * N_VOLUME_TARGET_DIMS;
+
         for(int dim = 0; dim < 3; ++dim)
         {
             const float val = input_cpu_buffer[index + POS_OFFSET + dim];
@@ -853,6 +790,12 @@ void load_dataset_to_testbed(Testbed& testbed, const fs::path& path, DatasetType
 
         const float tMax_val = input_cpu_buffer[index + TMAX_OFFSET];
         input_cpu_buffer[index + TMAX_OFFSET] = (tMax_val - tMax_offset) * tMax_scale;
+
+        for(int dim = 0; dim < 3; ++dim)
+        {
+            const float val = target_cpu_buffer[target_index + T_OFFSET + dim];
+            target_cpu_buffer[target_index + T_OFFSET + dim] = val / maxTAfter;
+        }
     }
 
 
@@ -1193,6 +1136,16 @@ int main(int argc, char** argv)
             "t-slice"
         }
     };
+
+    Flag use_old_transmittance_flag
+    {
+        parser, 
+        "USE_OLD_TRANSMITTANCE_FLAG",
+        "Whether to use old transmittance",
+        {
+            "use-old-T"
+        }
+    };
     // Flag no_gui_flag{
 	// 	parser,
 	// 	"NO_GUI",
@@ -1487,7 +1440,7 @@ int main(int argc, char** argv)
             {
                 filename = fmt::format("{}_{}.png", path.c_str(), i);
             }
-            testbed.dump_slice_img(filename, (float)(i+4) * (0.5f/20.f), T_slice_flag);
+            testbed.dump_slice_img(filename, (float)(i+4) * (0.5f/20.f), T_slice_flag, use_old_transmittance_flag);
         }
         return 0;
     }

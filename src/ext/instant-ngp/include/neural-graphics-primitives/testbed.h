@@ -1353,7 +1353,9 @@ public:
 	float m_volume_training_inputs_tMax_scale = 0.f;
 	float m_volume_training_inputs_tMax_offset = 0.f;
 
-	// PBRT Batch data
+	float m_volume_training_inputs_tAfter_scale = 1.6f;
+
+        // PBRT Batch data
 	GPUMemory<float> m_volume_batch_inputs;
 	GPUMemory<float> m_volume_batch_targets;
 
@@ -1370,7 +1372,7 @@ public:
 
 	void compute_and_save_png(const fs::path& filename, const vec2& resolution, int channel_stride, bool is_srgb, const float* data, int n_channels_to_save, float scale = 1.0f);
 
-	void dump_slice_img(const fs::path &path, float z_slice = 0.5f, bool isTransmittance = false);
+	void dump_slice_img(const fs::path &path, float z_slice = 0.5f, bool isTransmittance = false, bool useOldTransmittance = false);
 
 	void dump_validation_scatter_data(const fs::path &path, uint32_t n_samples = 10000);
 };

@@ -5977,6 +5977,7 @@ void Testbed::save_model(const fs::path& path, bool include_optimizer_state, boo
 	snapshot["pbrt"]["inputs_offset"] = m_volume_training_inputs_offset;
 	snapshot["pbrt"]["tMax_scale"] = m_volume_training_inputs_tMax_offset;
 	snapshot["pbrt"]["tMax_offset"] = m_volume_training_inputs_tMax_offset;
+	snapshot["pbrt"]["tAfter_scale"] = m_volume_training_inputs_tAfter_scale;
 	snapshot["pbrt"]["N_training_samples"] = m_n_volume_training_samples;
 	snapshot["pbrt"]["N_validation_samples"] = m_n_volume_validation_samples;
 	snapshot["pbrt"]["N_test_samples"] = m_n_volume_test_samples;
@@ -6080,10 +6081,10 @@ void Testbed::load_model(const fs::path& path)
 	m_volume_training_inputs_offset = snapshot["pbrt"]["inputs_offset"];
 	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_scale"];
 	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_offset"];
+	m_volume_training_inputs_tAfter_scale = snapshot["pbrt"].value("tAfter_scale", m_volume_training_inputs_tAfter_scale); //default to 1.6
 	m_n_volume_training_samples	 = snapshot["pbrt"]["N_training_samples"];
 	m_n_volume_validation_samples = snapshot["pbrt"]["N_validation_samples"];
 	m_n_volume_test_samples	= snapshot["pbrt"]["N_test_samples"];
-	
 
 	m_network_config = std::move(config);
         reset_network(false);
@@ -6321,7 +6322,7 @@ void Testbed::compute_and_save_png(
         write_stbi(filename, (int)res.x, (int)res.y, n_channels_to_save, img_data.data());
 }
 
-void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmittance)
+void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmittance, bool useOldTransmittance)
 {
 	if(!m_network)
 	{
@@ -6367,6 +6368,10 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 	CUDA_CHECK_THROW(cudaStreamSynchronize(stream));
 
 	std::vector<float> img_rgb(n_pixels * 3);
+	if(!useOldTransmittance)
+	{
+		tlog::info() << "Scaling by: " << m_volume_training_inputs_tAfter_scale;
+	}
 	for(uint32_t i = 0; i < n_pixels; ++i)
 	{
 
@@ -6378,13 +6383,31 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 
 		if(isTransmittance)
 		{
-			float r_op = 1.f - raw_r;
-			float g_op = 1.f - raw_g;
-			float b_op = 1.f - raw_b;
+			if(useOldTransmittance)
+			{
+				float r_op = 1.f - (raw_r);
+				float g_op = 1.f - (raw_g);
+				float b_op = 1.f - (raw_b);
+				
+				img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, r_op)) * 255.f;
+				img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+				img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, b_op)) * 255.f;
+			}
+			else
+			{
+				float r_op = 1.f - (raw_r * m_volume_training_inputs_tAfter_scale);
+				float g_op = 1.f - (raw_g * m_volume_training_inputs_tAfter_scale);
+				float b_op = 1.f - (raw_b * m_volume_training_inputs_tAfter_scale);
+				
+				r = std::max(0.f, std::min(1.f, r_op));
+				g = std::max(0.f, std::min(1.f, g_op));
+				b = std::max(0.f, std::min(1.f, b_op));
 
-			img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
-			img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
-			img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+
+				img_rgb[i * 3 + 0] = r;
+				img_rgb[i * 3 + 1] = r;
+				img_rgb[i * 3 + 2] = r;
+			}
 		}
 		else
 		{
@@ -6458,7 +6481,7 @@ void Testbed::dump_validation_scatter_data(const fs::path& path, uint32_t n_samp
 
 	f << "gt_L_r,gt_L_g,gt_L_b,gt_T_r,gt_T_g,gt_T_b,pred_L_r,pred_L_g,pred_L_b,pred_T_r,pred_T_g,pred_T_b\n";
    
-
+	auto sigmoid = [](float x) { return 1.0f / (1.0f + std::exp(-x)); };
 
 	for(size_t i = 0; i < n_to_dump; ++i)
 	{
@@ -6468,6 +6491,10 @@ void Testbed::dump_validation_scatter_data(const fs::path& path, uint32_t n_samp
 			if(j < 3)
 			{
 				val = std::max(0.f, std::exp(val) - 1.f);
+			}
+			else
+			{
+				val = val * m_volume_training_inputs_tAfter_scale;
 			}
 
 			f << val << ",";
@@ -6481,11 +6508,13 @@ void Testbed::dump_validation_scatter_data(const fs::path& path, uint32_t n_samp
 
 			if(j < 3)
 			{
-				val = std::max(0.f, raw);
+				float relu_val = std::max(0.f, raw);
+            	val = std::exp(relu_val) - 1.f;
 			}
 			else
 			{
-				val = 1.f / (1.f + std::exp(-raw));
+				float t_01 = sigmoid(raw);
+            	val = t_01 * m_volume_training_inputs_tAfter_scale;
 			}
 
 			f << val << (j == 5 ? "" : ",");
