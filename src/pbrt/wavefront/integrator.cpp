@@ -4,6 +4,10 @@
 
 #include <pbrt/wavefront/integrator.h>
 
+#ifdef PBRT_BUILD_GPU_RENDERER
+#include <neural-graphics-primitives/testbed.h>
+#endif
+
 #include <pbrt/base/medium.h>
 #include <pbrt/cameras.h>
 #include <pbrt/film.h>
@@ -1145,4 +1149,39 @@ namespace pbrt
             rgb[index] = exposure * film.GetPixelRGB(p + film.PixelBounds().pMin);
         });
     }
+
+    void WavefrontPathIntegrator::InitNGP(std::string modelPath)
+    {
+        using namespace ngp;
+        if (!m_Testbed) {
+            m_Testbed = std::make_shared<Testbed>();
+            auto &testbed = *m_Testbed.get();
+
+            tlog::info() << "Loading model file from " << modelPath;
+
+            testbed.load_model(modelPath);
+
+            
+            // testbed.m_training_data_available = true;
+
+            CUDA_CHECK_THROW(cudaDeviceSynchronize());
+            CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+            testbed.set_mode(ETestbedMode::PBRT);
+
+            CUDA_CHECK_THROW(cudaDeviceSynchronize());
+            CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+
+            testbed.set_jit_fusion(false);
+
+            CUDA_CHECK_THROW(cudaDeviceSynchronize());
+            CUDA_CHECK_THROW(cudaGetLastError()); // Clear any prior errors
+        }
+    }
+
+    void WavefrontPathIntegrator::InferNGP(uint64_t batchsize, float* d_inputs, float* d_outputs)
+    {
+
+    }
+
 }  // namespace pbrt

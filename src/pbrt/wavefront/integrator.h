@@ -29,6 +29,9 @@
 #include <thread>
 #include <queue>
 
+
+namespace ngp{ class Testbed; }
+
 namespace pbrt
 {
 
@@ -267,6 +270,19 @@ namespace pbrt
 
 
         void RayLogWorker();
+
+
+        std::shared_ptr<ngp::Testbed> m_Testbed;
+
+        void InitNGP(std::string modelPath);
+
+        void InferNGP(uint64_t batchSize, float* d_inputs, float* d_outputs);
+
+        float* inferInputs = nullptr;
+        float* inferOutputs = nullptr;
+        int maxInferenceBatchSize = 0;
+
+
     };
 
 }  // namespace pbrt

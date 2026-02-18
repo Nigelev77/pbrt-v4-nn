@@ -370,8 +370,17 @@ of CUDA installed, please update your PATH.")
           target_compile_definitions("${lib_name}" PRIVATE ${PBRT_DEFINITIONS})
         endif()
 
+        
+
         target_include_directories("${lib_name}" PRIVATE src ${CMAKE_BINARY_DIR})
         target_include_directories("${lib_name}" SYSTEM PRIVATE ${NANOVDB_INCLUDE})
+
+        if(PBRT_OPTIX_PATH)
+            target_include_directories("${lib_name}" SYSTEM PRIVATE "${PBRT_OPTIX_PATH}/include")
+                      # Also include the base path, as NGP's vendored optix puts headers in the root
+            target_include_directories("${lib_name}" SYSTEM PRIVATE "${PBRT_OPTIX_PATH}")
+        endif()
+
         target_link_libraries("${lib_name}" PRIVATE cuda_build_configuration pbrt_opt pbrt_warnings)
         add_dependencies("${lib_name}" pbrt_soa_generated)
         set(c_var_name ${output_var})
@@ -1164,6 +1173,17 @@ install(TARGETS
 )
 
 if(CMAKE_CUDA_COMPILER)
+  # Disable NGP's GUI to avoid GLEW/GLAD OpenGL loader conflict with pbrt's GUI
+  set(NGP_BUILD_WITH_GUI OFF CACHE BOOL "" FORCE)
   add_subdirectory(src/ext/instant-ngp)
   add_subdirectory(src/nn)
+
+  target_link_libraries(pbrt_lib PUBLIC ngp)
+  target_link_libraries(pbrt_exe PRIVATE ngp)
+
+  # Allow multiple definitions: both pbrt and NGP define stb_image symbols
+  # (via STB_IMAGE_IMPLEMENTATION) and g_optixFunctionTable (via
+  # optix_function_table_definition.h).  The symbols are identical so it is
+  # safe to let the linker pick the first definition.
+  target_link_options(pbrt_exe PRIVATE "-Wl,-z,muldefs")
 endif()
