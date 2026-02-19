@@ -3,7 +3,9 @@
 // SPDX: Apache-2.0
 
 #include <pbrt/wavefront/integrator.h>
-
+#ifdef PBRT_BUILD_GPU_RENDERER
+#include <neural-graphics-primitives/testbed.h>
+#endif
 #include <pbrt/media.h>
 
 #include <type_traits>
@@ -22,6 +24,293 @@ namespace pbrt
             integrator->SampleMediumScattering<PhaseFunction>(wavefrontDepth);
         }
     };
+
+    void WavefrontPathIntegrator::SampleMediumInteractionNGP(int wavefrontDepth)
+    {
+        if(!haveMedia)
+            return;
+        if(!m_Testbed)
+            return;
+
+        RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
+
+        float* d_inputs = inferInputs;
+        float* d_outputs = inferOutputs;
+        int* d_pixelIndices = inferPixelIndices;
+        SampledSpectrum *d_betaBefore = inferBetaBefore;
+        SampledWavelengths* d_lambda = inferLambda;
+        int* d_itemCount = inferItemCount;
+        int maxBatchSize = maxInferenceBatchSize;
+
+        int *d_slotMap = inferSlotMap;
+        SampledSpectrum *d_betaAfter = inferBetaAfter;
+        SampledSpectrum* d_ruBefore = inferRuBefore;
+        SampledSpectrum *d_ruAfter = inferRuAfter;
+        SampledSpectrum *d_rlBefore = inferRlBefore;
+        SampledSpectrum *d_rlAfter = inferRlAfter;
+
+        const float posScale = m_Testbed->m_volume_training_inputs_scale;
+        const vec3 posOffset = m_Testbed->m_volume_training_inputs_offset;
+        const float tMaxScale = m_Testbed->m_volume_training_inputs_tMax_scale;
+        const float tMaxOffset = m_Testbed->m_volume_training_inputs_tMax_offset;
+
+        // Reset item count
+        Do("Reset NGP item count", PBRT_CPU_GPU_LAMBDA() { *d_itemCount = 0; });
+
+        // Reset slotMap to -1 for all pixel indices
+        int maxPixels = maxQueueSize;
+        ParallelFor(
+            "Reset NGP slotmap", maxPixels,
+            PBRT_CPU_GPU_LAMBDA(int i){
+                d_slotMap[i] = -1;
+            }
+        );
+
+        auto pixelSampleState = this->pixelSampleState;
+
+        // ******************************************
+        // Step 1+2: Prepare and Normalize inputs and record slot mapping        
+        // ******************************************
+
+        ForAllQueued(
+            "Pack medium samples for NGP", mediumSampleQueue, maxQueueSize,
+            PBRT_CPU_GPU_LAMBDA(MediumSampleWorkItem w) {
+#ifdef PBRT_IS_GPU_CODE
+                int slot = atomicAdd(d_itemCount, 1);
+#else
+                int slot = __sync_fetch_and_add(d_itemCount, 1);
+#endif
+
+                if(slot >= maxBatchSize)
+                    return;
+                
+                d_pixelIndices[slot] = w.pixelIndex;
+                d_slotMap[w.pixelIndex] = slot;
+                d_betaBefore[slot] = w.beta;
+                d_lambda[slot] = w.lambda;
+                d_ruBefore[slot] = w.r_u;
+                d_rlBefore[slot] = w.r_l;
+
+                constexpr int N_IN = 7;
+                Point3f pos = w.ray.o;
+                Vector3f dir = Normalize(w.ray.d);
+                Float tMax = w.tMax;
+
+                constexpr float MAX_SCENE_DIST = 60.f;
+                float tMaxClamped = std::min(float(tMax), MAX_SCENE_DIST);
+
+                d_inputs[slot * N_IN + 0] = float(pos.x) * posScale + posOffset.x;
+                d_inputs[slot * N_IN + 1] = float(pos.y) * posScale + posOffset.y;
+                d_inputs[slot * N_IN + 2] = float(pos.z) * posScale + posOffset.z;
+
+                d_inputs[slot * N_IN + 3] = float(dir.x) * 0.5f + 0.5f;
+                d_inputs[slot * N_IN + 4] = float(dir.y) * 0.5f + 0.5f;
+                d_inputs[slot * N_IN + 5] = float(dir.z) * 0.5f + 0.5f;
+
+                d_inputs[slot * N_IN + 6] = (tMaxClamped - tMaxOffset) * tMaxScale;
+            });
+
+        #ifdef PBRT_BUILD_GPU_RENDERER
+            if(Options->useGPU)
+            {
+                GPUWait();
+            }
+        #endif
+
+            int nItems = 0;
+        #ifdef PBRT_BUILD_GPU_RENDERER
+            if(Options->useGPU)
+            {
+                CUDA_CHECK(cudaMemcpy(&nItems, d_itemCount, sizeof(int), cudaMemcpyDeviceToHost));
+            } else
+        #endif
+            {
+                nItems = *d_itemCount;
+            }
+
+            nItems = std::min(nItems, maxBatchSize);
+
+            if(nItems == 0)
+                return;
+
+            // ******************************************
+            // Step 3: Perform Inference via Instant-NGP        
+            // ******************************************
+
+            InferNGP(uint64_t(nItems), d_inputs, d_outputs);
+
+
+
+            // auto outputRayData = this->outputRayData;
+
+            Film film = this->film;
+
+            // ******************************************
+            // Step 4: Read network outputs and use to calculate new Le and beta values   
+            // ******************************************
+
+            ParallelFor(
+                "Unpack NGP medium outputs", nItems, PBRT_CPU_GPU_LAMBDA(int slot) {
+                    constexpr int N_OUT = 6;
+
+                    int pixelIndex = d_pixelIndices[slot];
+                    SampledSpectrum betaBefore = d_betaBefore[slot];
+                    SampledWavelengths lambda = d_lambda[slot];
+                    SampledSpectrum ruBefore = d_ruBefore[slot];
+                    SampledSpectrum rlBefore = d_rlBefore[slot];
+
+                    float L_r = d_outputs[slot * N_OUT + 0];
+                    float L_g = d_outputs[slot * N_OUT + 1];
+                    float L_b = d_outputs[slot * N_OUT + 2];
+                    float T_r = d_outputs[slot * N_OUT + 3];
+                    float T_g = d_outputs[slot * N_OUT + 4];
+                    float T_b = d_outputs[slot * N_OUT + 5];
+
+                    float Lr_actual = fmaxf(0.f, expf(L_r) - 1.f);
+                    float Lg_actual = fmaxf(0.f, expf(L_g) - 1.f);
+                    float Lb_actual = fmaxf(0.f, expf(L_b) - 1.f);
+                    //!IMPORTANT: Consider if this is correct:
+                    // T_r = fmaxf(0.f, T_r);
+                    // T_g = fmaxf(0.f, T_g);
+                    // T_b = fmaxf(0.f, T_b);
+
+                    const RGBFilm *rgbFilm = film.CastOrNullptr<RGBFilm>();
+                    const RGBColorSpace *cs = rgbFilm ? rgbFilm->colorSpace : nullptr;
+
+                    RGB Le_rgb(Lr_actual, Lg_actual, Lb_actual);
+                    RGB T_rgb(T_r, T_g, T_b);
+
+                    SampledSpectrum L_added(0.f);
+                    SampledSpectrum betaAfter = betaBefore;  // no attenutation by default
+                    SampledSpectrum ruAfter = ruBefore;
+                    SampledSpectrum rlAfter = rlBefore;
+                    if(cs)
+                    {
+                        RGBIlluminantSpectrum Le_spec(*cs, ClampZero(Le_rgb));
+                        RGBUnboundedSpectrum T_spec(*cs, ClampZero(T_rgb)); //NOTE: Should we Clamp 0,1 here?
+
+                        for(int i = 0; i < NSpectrumSamples; ++i)
+                        {
+                            Float T_i = T_spec(lambda[i]);
+                            L_added[i] = Le_spec(lambda[i]) * betaBefore[i];
+                            betaAfter[i] = T_i * betaBefore[i];
+                            ruAfter[i] = T_i * ruBefore[i];
+                            rlAfter[i] = T_i * rlBefore[i];
+                        }
+                    }
+                    // Store attenuated beta for dispatch loop
+                    d_betaAfter[slot] = betaAfter;
+                    d_ruAfter[slot] = ruAfter;
+                    d_rlAfter[slot] = rlAfter;
+
+                    SampledSpectrum Lp = pixelSampleState.L[pixelIndex];
+                    pixelSampleState.L[pixelIndex] = Lp + L_added;            
+                });
+
+            // ******************************************
+            // Step 5: Enqueue work items based on ray values/MediumSampleWorkItem values   
+            // ******************************************
+            ForAllQueued(
+                "Post-NGP medium dispatch", mediumSampleQueue, maxQueueSize,
+                PBRT_CPU_GPU_LAMBDA(MediumSampleWorkItem w) {
+                    int slot = d_slotMap[w.pixelIndex];
+
+                    if(slot < 0 || slot >= maxBatchSize)
+                        return;
+
+                    SampledSpectrum beta = d_betaAfter[slot];
+                    SampledSpectrum r_u = d_ruAfter[slot];
+                    SampledSpectrum r_l = d_rlAfter[slot];
+
+                    if(!beta)
+                        return;
+
+                    if (w.depth >= maxDepth)
+                        return;
+
+                    if(w.tMax == Infinity)
+                    {
+                        if(escapedRayQueue)
+                        {
+                            escapedRayQueue->Push(EscapedRayWorkItem{
+                                w.ray.o, w.ray.d, w.depth, w.lambda, w.pixelIndex,
+                                beta, (int)w.specularBounce, r_u, r_l,
+                                w.prevIntrCtx
+                            });
+                        }
+                        return;
+                    }
+                    // Surface intersection handling
+                    Material material = w.material;
+                    const MixMaterial *mix = material.CastOrNullptr<MixMaterial>();
+
+                    while(mix)
+                    {
+                        SurfaceInteraction intr(w.pi, w.uv, -w.ray.d, w.dpdus, w.dpdvs,
+                                                w.dndus, w.dndvs, w.ray.time, false);
+                        intr.faceIndex = w.faceIndex;
+                        MaterialEvalContext ctx(intr);
+                        material = mix->ChooseMaterial(BasicTextureEvaluator(), ctx);
+                        mix = material.CastOrNullptr<MixMaterial>();
+                    }
+
+                    if(!material)
+                    {
+                        Interaction intr(w.pi, w.n);
+                        intr.mediumInterface = &w.mediumInterface;
+                        Ray newRay = intr.SpawnRay(w.ray.d);
+                        nextRayQueue->PushIndirectRay(
+                            newRay, w.depth, w.prevIntrCtx, beta, r_u, r_l,
+                            w.lambda, w.etaScale, w.specularBounce,
+                            w.anyNonSpecularBounces, w.pixelIndex);
+                        return;
+                    }
+
+                    if(w.areaLight)
+                    {
+                        hitAreaLightQueue->Push(HitAreaLightWorkItem{
+                            w.areaLight, Point3f(w.pi), w.n, w.uv, -w.ray.d, w.lambda,
+                            w.depth, beta, r_u, r_l, w.prevIntrCtx,
+                            w.specularBounce, w.pixelIndex});
+                    }
+
+                    FloatTexture displacement = material.GetDisplacement();
+                    MaterialEvalQueue *q =
+                        (material.CanEvaluateTextures(BasicTextureEvaluator()) &&
+                         (!displacement ||
+                          BasicTextureEvaluator().CanEvaluate({displacement}, {})))
+                            ? basicEvalMaterialQueue
+                            : universalEvalMaterialQueue;
+                    auto enqueue = [=](auto ptr) {
+                        using Material = typename std::remove_reference_t<decltype(*ptr)>;
+                        q->Push<MaterialEvalWorkItem<Material>>(
+                            MaterialEvalWorkItem<Material>{ptr,
+                                                           w.pi,
+                                                           w.n,
+                                                           w.dpdu,
+                                                           w.dpdv,
+                                                           w.ray.time,
+                                                           w.depth,
+                                                           w.ns,
+                                                           w.dpdus,
+                                                           w.dpdvs,
+                                                           w.dndus,
+                                                           w.dndvs,
+                                                           w.uv,
+                                                           w.faceIndex,
+                                                           w.lambda,
+                                                           w.pixelIndex,
+                                                           w.anyNonSpecularBounces,
+                                                           -w.ray.d,
+                                                           beta,
+                                                           r_u,
+                                                           w.etaScale,
+                                                           w.mediumInterface});
+                        
+                    };
+                    material.Dispatch(enqueue);
+                });
+    }
 
     // WavefrontPathIntegrator Participating Media Methods
     void WavefrontPathIntegrator::SampleMediumInteraction(int wavefrontDepth)

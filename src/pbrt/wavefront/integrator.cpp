@@ -381,6 +381,43 @@ namespace pbrt
             }
         }
 
+        // Allocate NGP inference buffers (after maxQueueSize is known)
+        maxInferenceBatchSize = maxQueueSize;
+
+        #ifdef PBRT_BUILD_GPU_RENDERER
+        if (Options->useGPU) {
+            CUDA_CHECK(cudaMalloc(&inferInputs,       maxInferenceBatchSize * 7 * sizeof(float)));
+            CUDA_CHECK(cudaMalloc(&inferOutputs,       maxInferenceBatchSize * 6 * sizeof(float)));
+            CUDA_CHECK(cudaMalloc(&inferPixelIndices,  maxInferenceBatchSize * sizeof(int)));
+            CUDA_CHECK(cudaMalloc(&inferBetaBefore,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferBetaAfter,  maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferLambda,        maxInferenceBatchSize * sizeof(SampledWavelengths)));
+            CUDA_CHECK(cudaMalloc(&inferSlotMap,    maxQueueSize * sizeof(int)));  // sized by maxQueueSize (max pixelIndex range)
+            CUDA_CHECK(cudaMalloc(&inferItemCount,     sizeof(int)));
+
+            // MIS Weights
+            CUDA_CHECK(cudaMalloc(&inferRuBefore,   maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRlBefore,   maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRuAfter,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRlAfter,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferSlotMap,    maxQueueSize * sizeof(int)));
+        } else
+        #endif
+        {
+            inferInputs      = new float[maxInferenceBatchSize * 7];
+            inferOutputs     = new float[maxInferenceBatchSize * 6];
+            inferPixelIndices = new int[maxInferenceBatchSize];
+            inferBetaBefore  = new SampledSpectrum[maxInferenceBatchSize];
+            inferBetaAfter  = new SampledSpectrum[maxInferenceBatchSize];
+            inferRuBefore   = new SampledSpectrum[maxInferenceBatchSize];
+            inferRlBefore   = new SampledSpectrum[maxInferenceBatchSize];
+            inferRuAfter    = new SampledSpectrum[maxInferenceBatchSize];
+            inferRlAfter    = new SampledSpectrum[maxInferenceBatchSize];
+            inferLambda      = new SampledWavelengths[maxInferenceBatchSize];
+            inferSlotMap    = new int[maxQueueSize];
+            inferItemCount   = new int(0);
+        }
+
     }
 
     void WavefrontPathIntegrator::UpdateCamera(BasicScene& scene)
@@ -651,8 +688,15 @@ namespace pbrt
                         }
 
                         //INFO: If mimicSimple is true, it will only do the steps similar to SimpleVolPathIntegrator.
-                        SampleMediumInteraction(wavefrontDepth);
-
+                        if(m_Testbed)
+                        {
+                            SampleMediumInteractionNGP(wavefrontDepth);
+                        }
+                        else
+                        {
+                            SampleMediumInteraction(wavefrontDepth);
+                        }
+                        
                         HandleEscapedRays();
 
                         HandleEmissiveIntersection();
@@ -1160,8 +1204,11 @@ namespace pbrt
             tlog::info() << "Loading model file from " << modelPath;
 
             testbed.load_model(modelPath);
+            if(!testbed.m_network)
+            {
+                tlog::info() << "Failed to load model file...";
+            }
 
-            
             // testbed.m_training_data_available = true;
 
             CUDA_CHECK_THROW(cudaDeviceSynchronize());
@@ -1181,7 +1228,16 @@ namespace pbrt
 
     void WavefrontPathIntegrator::InferNGP(uint64_t batchsize, float* d_inputs, float* d_outputs)
     {
+        if(!m_Testbed)
+            return;
 
+        // using namespace ngp;
+        // auto &testbed = *m_Testbed.get();
+
+        // cudaStream_t *stream = testbed.m_stream.get();
+        // testbed.m_network->inference(stream, batchsize, d_inputs, d_outputs);
+
+        // CUDA_CHECK(cudaStreamSynchronize(stream));
     }
 
 }  // namespace pbrt

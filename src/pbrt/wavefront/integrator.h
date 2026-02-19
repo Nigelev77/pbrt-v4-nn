@@ -282,7 +282,18 @@ namespace pbrt
         float* inferOutputs = nullptr;
         int maxInferenceBatchSize = 0;
 
+        void SampleMediumInteractionNGP(int wavefrontDepth);
 
+        int* inferPixelIndices = nullptr;
+        SampledSpectrum* inferBetaBefore = nullptr;
+        SampledSpectrum *inferBetaAfter = nullptr;
+        SampledSpectrum* inferRuBefore = nullptr;
+        SampledSpectrum* inferRuAfter = nullptr;
+        SampledSpectrum* inferRlBefore = nullptr;
+        SampledSpectrum* inferRlAfter = nullptr;
+        SampledWavelengths* inferLambda = nullptr;
+        int *inferSlotMap = nullptr;
+        int *inferItemCount = nullptr;
     };
 
 }  // namespace pbrt
