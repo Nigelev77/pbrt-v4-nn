@@ -1,16 +1,65 @@
-//Show rules
-#set page(margin: (left: 1cm, right: 1cm, top: 1cm, bottom: 1cm))
-#set page(numbering: "1 of 1", number-align: right)
-#set text(font: "Libre Baskerville")
-#show heading.where(level: 2): it => pad(left: 0.5em, it)
-#show heading.where(level: 3): it => pad(left: 1em, it)
-#show heading.where(level: 4): it => pad(left: 1.5em, it)
-#show heading.where(level: 1): it => pad(left: 0em, it)
-
-// Custom bindings
-#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
-#let vb(val) = math.bold(math.upright(val))
+#import "common.typ": *
 
 #align(center)[
-  #text(1.25em)[*Issues with small hashgrid network*]
+  #text(1.25em)[*Issues with very small hashgrid network and large hashgrid networks*]
 ]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Validation Testing data context
+]
+/*!TODO: Add graph of validation testing graph*/
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Small Hashgrid network Levels (`n_levels` < 8)
+]
+
+#p(1)[
+  From the validation testing section, it seemed like `n_levels=2` or `n_levels=4` were the best as they had the highest peaks (\~29 dB in PSNR) and they didn't have any drastic decreases in them. However, when actually visualizing slices for radiance along the $z$-axis, there were some striking issues:
+
+  #image-grid(
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_7.png",
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_8.png",
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_9.png",
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_10.png",
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_11.png",
+    "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_12.png",
+    columns: 6,
+  )
+
+  You can see here that there's some structure, but it is very blocky and not high resolution at all, not like what one would expect a flame to look like.
+]
+
+#p(1)[
+  The likely issue here is that the hashgrid is underfitting to my data. Since Instant-NGP represents space as a hierarchy of grids, the low `n_levels` means that the grid doesn't have a fine enough representation/doesn't have enough levels and is too coarse to fully represent sharper changes within the volume.
+
+  What this means is that there were not enough bins within the grid to learn the higher definition representation of the flame itself, leading to blurry and inconsistent blocks around the image (some due to the fact that multiple points likely mapped to the same coordinates and caused a hash collision)
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Larger Hashgrid network levels (`n_levels >= 16`)
+]
+
+#p(1)[
+  Following the above, since lower `n_levels` couldn't represent the scene's radiance, what about the higher ones? Well this lead to a different issue, one that isn't just a increasing validation test error (from the graph above)
+
+  /*!TODO: Get some slices of large hashgrid network*/
+
+  From the images above, you can see they are almost all black/empty, meaning that it predicted little to no radiance coming from the slices.
+
+  The likely explanation is that with a much larger grid and higher growth factor of $1.5$, the finest grid resolution became massive, with loads of different voxels.
+
+  Therefore, because the volume itself is relatively sparse, the fire itself took up a lot less space comparatively to the amount of empty space in the scene. So, because the grid was so fine there were many hash entries in the hashgrid that simply never got touched or updated to take a "fire" ray samples and the ones that did were drowned out by the empty space. Thus, it likely lead to dead ReLU, /*!TODO: Put better explanation for Dead ReLU*/ and the optimizer could not escape it due to the gradients/weights and the gradients for fire too sparse to update, causing the network to converge to learning "all-black"
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  A healthy medium: The goldilocks range (`n_levels=8/12`)
+]
+
+#p(1)[
+  From the previous experiments, its clear that the network can't be too small/dumb but can't be too complex to just learn the empty space, we need to strike a healthy balance between them. I found that this was around `n_levels=8` or `n_levels=12`.
+]
+
