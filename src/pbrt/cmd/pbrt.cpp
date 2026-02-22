@@ -219,7 +219,9 @@ int main(int argc, char* argv[])
             ParseArg(&iter, args.end(), "write-partial-images",
                 &options.writePartialImages, onError) ||
             ParseArg(&iter, args.end(), "upgrade", &options.upgrade, onError) ||
-            ParseArg(&iter, args.end(), "number-of-orientations", &options.numberOfOrientations, onError)
+            ParseArg(&iter, args.end(), "number-of-orientations", &options.numberOfOrientations, onError) ||
+            ParseArg(&iter, args.end(), "useNGP", &options.useNGP, onError) ||
+            ParseArg(&iter, args.end(), "modelPath", &options.modelPath, onError)
         )
         {
             // success

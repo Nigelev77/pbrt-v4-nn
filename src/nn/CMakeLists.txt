@@ -7,7 +7,7 @@ if(NOT TARGET ngp)
     message(WARNING "Target 'ngp' not found. Ensure src/ext/instant-ngp is configured.")
 endif()
 
-add_executable(pbrt_nn main_nn.cu)
+add_executable(pbrt_nn main_nn.cu loading_functions.cu)
 
 # Define the macro to enable the code in main_nn.cu
 target_compile_definitions(pbrt_nn PRIVATE PBRT_GPU_BUILD_RENDERER)

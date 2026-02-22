@@ -48,3 +48,5 @@ testing_*
 graphs/*
 
 misc_images/*
+training_visualized_graphs/*
+*.png

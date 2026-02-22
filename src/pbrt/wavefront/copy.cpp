@@ -63,10 +63,35 @@ namespace pbrt
                 float tMax;
             };
 
+            struct __attribute__((packed)) BinaryTrainingSampleSpectral 
+            {
+                float o[3];
+                float d[3];
+                // float beta_before_spectral[NSpectrumSamples];
+                // float L_after_spectral[NSpectrumSamples];
+                float T_after_spectral[NSpectrumSamples];
+                float tMax;
+            };
+
             std::vector<BinaryTrainingSample> binaryBatchOutput;
-            binaryBatchOutput.resize(batch.trainingData.size());
-            LOG_VERBOSE("Allocating %d number of binary batch outputs\n",
-                        batch.trainingData.size());
+            std::vector<BinaryTrainingSampleSpectral> binaryBatchOutputSpectral;
+
+
+            if(false)
+            {
+                binaryBatchOutput.resize(batch.trainingData.size());
+                LOG_VERBOSE("Allocating %d number of binary batch outputs\n",
+
+                            batch.trainingData.size());
+
+            }
+            else
+            {
+                binaryBatchOutputSpectral.resize(batch.trainingData.size());
+
+            }
+
+            
 
             for(size_t i = 0; i < batch.trainingData.size(); ++i)
             {
@@ -97,28 +122,61 @@ namespace pbrt
                         //     trainingSample.tMax,
                         //     batch.sampleIndex
                         // );
-                        auto &binaryOutput = binaryBatchOutput[i];
-                        binaryOutput.o[0] = trainingSample.rayo.x;
-                        binaryOutput.o[1] = trainingSample.rayo.y;
-                        binaryOutput.o[2] = trainingSample.rayo.z;
+                        if(false)
+                        {
+                            auto &binaryOutput = binaryBatchOutput[i];
+                            binaryOutput.o[0] = trainingSample.rayo.x;
+                            binaryOutput.o[1] = trainingSample.rayo.y;
+                            binaryOutput.o[2] = trainingSample.rayo.z;
 
-                        binaryOutput.d[0] = trainingSample.rayd.x;
-                        binaryOutput.d[1] = trainingSample.rayd.y;
-                        binaryOutput.d[2] = trainingSample.rayd.z;
+                            binaryOutput.d[0] = trainingSample.rayd.x;
+                            binaryOutput.d[1] = trainingSample.rayd.y;
+                            binaryOutput.d[2] = trainingSample.rayd.z;
 
-                        binaryOutput.beta_before_rgb[0] = trainingSample.beta_before_rgb.r;
-                        binaryOutput.beta_before_rgb[1] = trainingSample.beta_before_rgb.g;
-                        binaryOutput.beta_before_rgb[2] = trainingSample.beta_before_rgb.b;
 
-                        binaryOutput.L_after_rgb[0] = trainingSample.L_after_rgb.r;
-                        binaryOutput.L_after_rgb[1] = trainingSample.L_after_rgb.g;
-                        binaryOutput.L_after_rgb[2] = trainingSample.L_after_rgb.b;
 
-                        binaryOutput.T_after[0] = trainingSample.T_after.r;
-                        binaryOutput.T_after[1] = trainingSample.T_after.g;
-                        binaryOutput.T_after[2] = trainingSample.T_after.b;
+                            binaryOutput.beta_before_rgb[0] = trainingSample.beta_before_rgb.r;
+                            binaryOutput.beta_before_rgb[1] = trainingSample.beta_before_rgb.g;
+                            binaryOutput.beta_before_rgb[2] = trainingSample.beta_before_rgb.b;
+                            
+                            binaryOutput.L_after_rgb[0] = trainingSample.L_after_rgb.r;
+                            binaryOutput.L_after_rgb[1] = trainingSample.L_after_rgb.g;
+                            binaryOutput.L_after_rgb[2] = trainingSample.L_after_rgb.b;
+                            
+                            binaryOutput.T_after[0] = trainingSample.T_after.r;
+                            binaryOutput.T_after[1] = trainingSample.T_after.g;
+                            binaryOutput.T_after[2] = trainingSample.T_after.b;
+                        }
+                        else
+                        {
+                            auto &binaryOutput = binaryBatchOutputSpectral[i];
+                            binaryOutput.o[0] = trainingSample.rayo.x;
+                            binaryOutput.o[1] = trainingSample.rayo.y;
+                            binaryOutput.o[2] = trainingSample.rayo.z;
 
-                        binaryOutput.tMax = trainingSample.tMax;
+                            binaryOutput.d[0] = trainingSample.rayd.x;
+                            binaryOutput.d[1] = trainingSample.rayd.y;
+                            binaryOutput.d[2] = trainingSample.rayd.z;
+
+                            // binaryOutput.beta_before_spectral[0] = trainingSample.beta_before_spectral[0];
+                            // binaryOutput.beta_before_spectral[1] = trainingSample.beta_before_spectral[1];
+                            // binaryOutput.beta_before_spectral[2] = trainingSample.beta_before_spectral[2];
+                            // binaryOutput.beta_before_spectral[3] = trainingSample.beta_before_spectral[3];
+    
+                            // binaryOutput.L_after_spectral[0] = trainingSample.L_after_spectral[0];
+                            // binaryOutput.L_after_spectral[1] = trainingSample.L_after_spectral[1];
+                            // binaryOutput.L_after_spectral[2] = trainingSample.L_after_spectral[2];
+                            // binaryOutput.L_after_spectral[3] = trainingSample.L_after_spectral[3];
+    
+                            binaryOutput.T_after_spectral[0] = trainingSample.T_after_spectral[0];
+                            binaryOutput.T_after_spectral[1] = trainingSample.T_after_spectral[1];
+                            binaryOutput.T_after_spectral[2] = trainingSample.T_after_spectral[2];
+                            binaryOutput.T_after_spectral[3] = trainingSample.T_after_spectral[3];
+    
+                            binaryOutput.tMax = trainingSample.tMax;
+
+                        }
+                        
                     } else {
                         // batchOutput += StringPrintf(
                         //     "%s|%s|%d|%d|%d|%s|%s\n",
@@ -128,46 +186,44 @@ namespace pbrt
                     }
                 }
             }
-            if(!binaryBatchOutput.empty())
+            if(!binaryBatchOutput.empty() || !binaryBatchOutputSpectral.empty())
             {
                 LOG_VERBOSE("Binary batch output not empty, writing...\n");
                 std::lock_guard<std::mutex> fileLock(rayLogFileMutex);
                 if(outputRayDataFile)
                 {
                     LOG_VERBOSE("OutputRayDataFile not empty, writing...\n");
-                    // outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
-                    outputRayDataFile->seekp(0, std::ios::end);
-                    outputRayDataFile->write(
+                    if(false)
+                    {
+
+                        // outputRayDataFile->write(batchOutput.c_str(), batchOutput.length());
+                        outputRayDataFile->seekp(0, std::ios::end);
+                        outputRayDataFile->write(
                         reinterpret_cast<const char *>(binaryBatchOutput.data()),
                         binaryBatchOutput.size() * sizeof(BinaryTrainingSample));
 
-                    // outputRayDataFile->flush();
-                    // outputRayDataFile->close();
+                        
+                        rayLogSampleCnt += batch.trainingData.size();
+                    }
+                    else
+                    {
+                        outputRayDataFile->seekp(0, std::ios::end);
+                        outputRayDataFile->write(
+                        reinterpret_cast<const char *>(binaryBatchOutputSpectral.data()),
+                        binaryBatchOutputSpectral.size() * sizeof(BinaryTrainingSampleSpectral));
 
-                    rayLogSampleCnt += batch.trainingData.size();
-
-                    // std::string outputFilename = outputProperTargetLuminance ? DEFAULT_PRIMITIVE_OUTPUT_FILE_TARGET : DEFAULT_PRIMITIVE_OUTPUT_FILE;
-                    // std::fstream headerStream(outputFilename, std::ios::in | std::ios::out | std::ios::binary);
-                    // if (headerStream.is_open()) {
-                    //     // char header[8];
-                    //     // snprintf(header, sizeof(header), "version %s samples=%-20d\n", 
-                    //     //     outputProperTargetLuminance ? "1.1" : "1.0", rayLogSampleCnt);
-                    //     // headerStream.write(header, strlen(header));
-                    //     headerStream.seekp(0);
-                    //     headerStream.write(
-                    //         reinterpret_cast<const char *>(&rayLogSampleCnt),
-                    //         sizeof(uint64_t)
-                    //     );
-                    // }
-
-                    // outputRayDataFile->open(outputFilename, std::ios::app | std::ios::binary);
-
+                        
+                        rayLogSampleCnt += batch.trainingData.size();
+                    }
+                        
+                        
+                        
                     outputRayDataFile->seekp(0, std::ios::beg);
                     outputRayDataFile->write(reinterpret_cast<const char*>(&rayLogSampleCnt), sizeof(uint64_t));
-
+                        
                     outputRayDataFile->flush();
                 }
-                        }
+            }
         }
     }
 

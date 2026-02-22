@@ -1,0 +1,43 @@
+
+11:39:03 WARNING  DISPLAY not set. GUI may not work over remote SSH.
+11:39:03 WARNING  Try: export DISPLAY=<your-local-ip>:0.0
+11:39:04 SUCCESS  Initialized CUDA 12.4. Active GPU is #0: NVIDIA RTX A5000 [86]
+11:39:04 INFO     Initializing window...
+11:39:04 INFO     Window initialized.
+11:39:04 INFO     Loading model file from /workspace/pbrt-v4-nn/default_model.msgpack
+11:39:04 INFO     Loading network snapshot from: /workspace/pbrt-v4-nn/default_model.msgpack
+11:39:04 INFO     Model:         7--[Composite]-->32--[FullyFusedMLP(neurons=64,layers=4)]-->6
+11:39:04 INFO       total_encoding_params=24576 total_network_params=7168
+11:39:04 WARNING  Could not find root directory.
+11:39:04 INFO     Loading 241964745 samples as test data from /workspace/pbrt-v4-nn/test_explosion.bin
+11:40:21 SUCCESS  Read 241964745 samples
+11:40:21 INFO     Scene AABB: [1e+30, 1e+30, 1e+30] to [-1e+30, -1e+30, -1e+30]
+11:40:21 INFO     Auto-normalizing rays: scale=0.00625001 offset=[0.500003, 0.25, 0.2625]
+11:40:21 INFO     Auto-normalizing tmax: scale=0 with range=[ 1e+30, -1e+30 ]
+
+11:40:26 SUCCESS  Uploaded to GPU
+11:40:27 INFO     Dumping 10240 test samples to /workspace/pbrt-v4-nn/scatter.csv
+terminate called after throwing an instance of 'std::runtime_error'
+  what():  /workspace/pbrt-v4-nn/src/ext/instant-ngp/dependencies/tiny-cuda-nn/include/tiny-cuda-nn/object.h:216 check failed: output.m() == output_width()
+
+
+
+12:39:58 INFO     Loading 282979064 samples as training data from /workspace/pbrt-v4-nn/training_explosion.bin
+12:41:32 SUCCESS  Read 282979064 samples
+12:41:32 INFO     Scene AABB: [-79.9999, -39.9999, -4] to [79.9989, 120, 79.9999]
+12:41:32 INFO     Scene AABB: [-79.9999, -39.9999, -4] to [79.9989, 120, 79.9999]
+12:41:32 INFO     Auto-normalizing rays: scale=0.00625001 offset=[0.500003, 0.25, 0.2625]
+12:41:32 INFO     Auto-normalizing tmax: scale=0.02 with range=[ 7.32693e-06, 50 ] and offset=[7.32693e-06
+
+12:41:39 SUCCESS  Uploaded to GPU
+12:41:40 INFO     Resetting network...
+12:41:40 INFO     Model:         7--[Composite]-->32--[FullyFusedMLP(neurons=64,layers=4)]-->6
+12:41:40 INFO       total_encoding_params=24576 total_network_params=7168
+12:41:40 INFO     Network reset complete.
+12:41:40 INFO     Calling load_nerf_post...
+12:41:40 INFO     load_nerf_post complete.
+12:41:40 INFO     Loading 241964745 samples as test data from /workspace/pbrt-v4-nn/test_explosion.bin
+12:42:25 SUCCESS  Read 241964745 samples
+12:42:25 INFO     Scene AABB: [1e+30, 1e+30, 1e+30] to [-1e+30, -1e+30, -1e+30]
+12:42:25 INFO     Auto-normalizing rays: scale=0.00625001 offset=[0.500003, 0.25, 0.2625]
+12:42:25 INFO     Auto-normalizing tmax: scale=0.02 with offset = 7.32693e-06

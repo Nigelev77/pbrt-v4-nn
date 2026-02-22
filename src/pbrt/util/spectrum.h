@@ -284,21 +284,26 @@ class SampledWavelengths {
     static SampledWavelengths SampleUniform(Float u, Float lambda_min = Lambda_min,
                                             Float lambda_max = Lambda_max) {
         SampledWavelengths swl;
-        // Sample first wavelength using _u_
+    #if 1  // Fixed wavelengths for NN training
+        // 420nm (blue), 540nm (green), 600nm (orange), 700nm (red)
+        swl.lambda[0] = 420.f;
+        swl.lambda[1] = 540.f;
+        swl.lambda[2] = 600.f;
+        swl.lambda[3] = 700.f;
+        for (int i = 0; i < NSpectrumSamples; ++i)
+            swl.pdf[i] = 1 / (lambda_max - lambda_min);
+    #else
+        // Original sampling
         swl.lambda[0] = Lerp(u, lambda_min, lambda_max);
-
-        // Initialize _lambda_ for remaining wavelengths
         Float delta = (lambda_max - lambda_min) / NSpectrumSamples;
         for (int i = 1; i < NSpectrumSamples; ++i) {
             swl.lambda[i] = swl.lambda[i - 1] + delta;
             if (swl.lambda[i] > lambda_max)
-                swl.lambda[i] = lambda_min + (swl.lambda[i] - lambda_max);
+                swl.lambda[i] -= (lambda_max - lambda_min);
         }
-
-        // Compute PDF for sampled wavelengths
         for (int i = 0; i < NSpectrumSamples; ++i)
             swl.pdf[i] = 1 / (lambda_max - lambda_min);
-
+    #endif
         return swl;
     }
 

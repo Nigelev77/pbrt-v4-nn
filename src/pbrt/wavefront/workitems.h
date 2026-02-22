@@ -425,6 +425,10 @@ namespace pbrt
         RGB beta_before_rgb;
         RGB T_after;
         RGB L_after_rgb;
+
+        SampledSpectrum T_after_spectral;
+        SampledSpectrum L_after_spectral;
+        SampledSpectrum beta_before_spectral;
     };
 
     using RayLoggingWorkQueue = WorkQueue<PendingPixelSample>;

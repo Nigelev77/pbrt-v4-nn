@@ -6,6 +6,7 @@
 
 #ifdef PBRT_BUILD_GPU_RENDERER
 #include <neural-graphics-primitives/testbed.h>
+#include <tiny-cuda-nn/gpu_matrix.h>
 #endif
 
 #include <pbrt/base/medium.h>
@@ -383,29 +384,32 @@ namespace pbrt
 
         // Allocate NGP inference buffers (after maxQueueSize is known)
         maxInferenceBatchSize = maxQueueSize;
+        int paddedMaxBatch = (int)tcnn::next_multiple(
+            (uint64_t)maxInferenceBatchSize, (uint64_t)tcnn::BATCH_SIZE_GRANULARITY);
+        const uint target_size = 4;
 
-        #ifdef PBRT_BUILD_GPU_RENDERER
+#ifdef PBRT_BUILD_GPU_RENDERER
         if (Options->useGPU) {
-            CUDA_CHECK(cudaMalloc(&inferInputs,       maxInferenceBatchSize * 7 * sizeof(float)));
-            CUDA_CHECK(cudaMalloc(&inferOutputs,       maxInferenceBatchSize * 6 * sizeof(float)));
+            CUDA_CHECK(cudaMalloc(&inferInputs, paddedMaxBatch * 7 * sizeof(float)));
+            CUDA_CHECK(cudaMalloc(&inferOutputs,       paddedMaxBatch * target_size * sizeof(float)));
             CUDA_CHECK(cudaMalloc(&inferPixelIndices,  maxInferenceBatchSize * sizeof(int)));
             CUDA_CHECK(cudaMalloc(&inferBetaBefore,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
-            CUDA_CHECK(cudaMalloc(&inferBetaAfter,  maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferBetaAfter,     maxInferenceBatchSize * sizeof(SampledSpectrum)));
             CUDA_CHECK(cudaMalloc(&inferLambda,        maxInferenceBatchSize * sizeof(SampledWavelengths)));
-            CUDA_CHECK(cudaMalloc(&inferSlotMap,    maxQueueSize * sizeof(int)));  // sized by maxQueueSize (max pixelIndex range)
+            CUDA_CHECK(cudaMalloc(&inferSlotMap,       maxQueueSize * sizeof(int)));  // sized by maxQueueSize (max pixelIndex range)
             CUDA_CHECK(cudaMalloc(&inferItemCount,     sizeof(int)));
 
             // MIS Weights
-            CUDA_CHECK(cudaMalloc(&inferRuBefore,   maxInferenceBatchSize * sizeof(SampledSpectrum)));
-            CUDA_CHECK(cudaMalloc(&inferRlBefore,   maxInferenceBatchSize * sizeof(SampledSpectrum)));
-            CUDA_CHECK(cudaMalloc(&inferRuAfter,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
-            CUDA_CHECK(cudaMalloc(&inferRlAfter,    maxInferenceBatchSize * sizeof(SampledSpectrum)));
-            CUDA_CHECK(cudaMalloc(&inferSlotMap,    maxQueueSize * sizeof(int)));
+            CUDA_CHECK(cudaMalloc(&inferRuBefore,      maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRlBefore,      maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRuAfter,       maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferRlAfter,       maxInferenceBatchSize * sizeof(SampledSpectrum)));
+            CUDA_CHECK(cudaMalloc(&inferSlotMap,       maxQueueSize * sizeof(int)));
         } else
         #endif
         {
-            inferInputs      = new float[maxInferenceBatchSize * 7];
-            inferOutputs     = new float[maxInferenceBatchSize * 6];
+            inferInputs      = new float[paddedMaxBatch * 7];
+            inferOutputs     = new float[paddedMaxBatch * target_size];
             inferPixelIndices = new int[maxInferenceBatchSize];
             inferBetaBefore  = new SampledSpectrum[maxInferenceBatchSize];
             inferBetaAfter  = new SampledSpectrum[maxInferenceBatchSize];
@@ -418,6 +422,7 @@ namespace pbrt
             inferItemCount   = new int(0);
         }
 
+        InitNGP(Options->modelPath);
     }
 
     void WavefrontPathIntegrator::UpdateCamera(BasicScene& scene)
@@ -688,8 +693,9 @@ namespace pbrt
                         }
 
                         //INFO: If mimicSimple is true, it will only do the steps similar to SimpleVolPathIntegrator.
-                        if(m_Testbed)
+                        if(m_Testbed && Options->useNGP)
                         {
+                            LOG_VERBOSE("Initiating Sample Medium Interaction NGP");
                             SampleMediumInteractionNGP(wavefrontDepth);
                         }
                         else
@@ -1226,18 +1232,49 @@ namespace pbrt
         }
     }
 
-    void WavefrontPathIntegrator::InferNGP(uint64_t batchsize, float* d_inputs, float* d_outputs)
+    void WavefrontPathIntegrator::InferNGP(uint64_t nItems, float* d_inputs, float* d_outputs)
     {
-        if(!m_Testbed)
+#ifdef PBRT_BUILD_GPU_RENDERER
+        if(!m_Testbed || !m_Testbed->m_network)
             return;
 
+
+        if(nItems == 0)
+            return;
+
+        constexpr uint32_t BATCH_GRANULARITY = tcnn::BATCH_SIZE_GRANULARITY;
+        constexpr uint32_t N_VOLUME_INPUT_DIMS = 7;
+        constexpr uint32_t N_VOLUME_TARGET_DIMS = 4;
+        uint32_t n_padded =
+            (uint32_t)tcnn::next_multiple(nItems, (uint64_t)BATCH_GRANULARITY);
+
+                if(n_padded > nItems)
+        {
+            CUDA_CHECK(cudaMemset(
+                d_inputs + nItems * N_VOLUME_INPUT_DIMS,
+                0,
+                (n_padded - nItems) * N_VOLUME_INPUT_DIMS * sizeof(float)
+            ));
+        }
+
+        tcnn::GPUMatrix<float> input_matrix(d_inputs, N_VOLUME_INPUT_DIMS, n_padded);
+        tcnn::GPUMatrix<float> output_matrix(d_outputs, N_VOLUME_TARGET_DIMS, n_padded);
+
+        cudaStream_t stream = 0;
+        if(Options->useGPU)
+        {
+            stream = m_Testbed->m_stream.get();
+        }
+        m_Testbed->m_network->inference(stream, input_matrix, output_matrix);
         // using namespace ngp;
         // auto &testbed = *m_Testbed.get();
-
+        
         // cudaStream_t *stream = testbed.m_stream.get();
         // testbed.m_network->inference(stream, batchsize, d_inputs, d_outputs);
-
+        
         // CUDA_CHECK(cudaStreamSynchronize(stream));
+#endif
+        
     }
 
 }  // namespace pbrt

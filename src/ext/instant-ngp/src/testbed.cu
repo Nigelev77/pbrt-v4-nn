@@ -1359,8 +1359,7 @@ void Testbed::imgui() {
 			);
 			ImGui::TreePop();
 		}
-	}
-
+        
 	ImGui::EndDisabled();
 
 
@@ -4077,13 +4076,17 @@ Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 
 	GPUMemory<float> temp_streaming_inputs;
 	GPUMemory<float> temp_streaming_targets;
-	if(m_stream_test_data_from_CPU)
-	{
-		temp_streaming_inputs.resize(max_batch_size * N_VOLUME_INPUT_DIMS);
-                temp_streaming_targets.resize(max_batch_size * N_VOLUME_TARGET_DIMS);
-	}
 
-	float total_loss = 0.f;
+        const int target_size = m_volume_training_spectral_only
+                                    ? N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY
+                                    : N_VOLUME_TARGET_DIMS;
+        if (m_stream_test_data_from_CPU) {
+            temp_streaming_inputs.resize(max_batch_size * N_VOLUME_INPUT_DIMS);
+            temp_streaming_targets.resize(
+                max_batch_size * target_size);
+        }
+
+        float total_loss = 0.f;
 	uint64_t total_samples = 0;
 	for (uint32_t batch_idx = 0; batch_idx < n_batches; ++batch_idx) {
 		uint64_t offset = (uint64_t)batch_idx * max_batch_size;
@@ -4112,8 +4115,8 @@ Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 
 			CUDA_CHECK_THROW(cudaMemcpyAsync(
 				temp_streaming_targets.data(),
-				test_targets_cpu_ptr + offset * N_VOLUME_TARGET_DIMS,
-				batch_size * N_VOLUME_TARGET_DIMS * sizeof(float),
+				test_targets_cpu_ptr + offset * target_size,
+				batch_size * target_size * sizeof(float),
 				cudaMemcpyHostToDevice, stream
 			));
 
@@ -4123,7 +4126,7 @@ Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 		else
 		{
 			input_data_ptr = test_inputs.data() + offset * N_VOLUME_INPUT_DIMS;
-			target_data_ptr = test_targets.data() + offset * N_VOLUME_TARGET_DIMS;
+			target_data_ptr = test_targets.data() + offset * target_size;
 		}
 
 		// Create GPU matrices for validation data
@@ -4133,7 +4136,7 @@ Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 
 		GPUMatrix<float> target_matrix(
 			target_data_ptr,
-			N_VOLUME_TARGET_DIMS, batch_size);
+			target_size, batch_size);
 
 		GPUMatrix<network_precision_t> predictions_matrix(
 			predictions.data(), padded_output, batch_size);
@@ -4153,13 +4156,13 @@ Testbed::ValidationTestResults Testbed::validation_test(bool onTestSet)
 		float batch_loss =
 			reduce_sum(loss_values.data(), batch_size * padded_output, stream);
 
-		total_loss += batch_loss * (batch_size * N_VOLUME_TARGET_DIMS);
+		total_loss += batch_loss * (batch_size * target_size);
 		total_samples += batch_size;
 	}
 
 	CUDA_CHECK_THROW(cudaStreamSynchronize(m_stream.get()));
 
-	float mse = total_loss / (total_samples * N_VOLUME_TARGET_DIMS);
+	float mse = total_loss / (total_samples * target_size);
 	// float psnr = -10.f * std::log10(std::max(mse, 1e-10f));
 	const float MAX_VAL = std::log(1000.f + 1);
 	float rmse = std::sqrt(std::max(mse, 1e-10f));
@@ -4421,7 +4424,7 @@ Testbed::NetworkDims Testbed::network_dims_pbrt() const
 {
 	NetworkDims dims;
 	dims.n_input = N_VOLUME_INPUT_DIMS;
-	dims.n_output = N_VOLUME_TARGET_DIMS;
+	dims.n_output = m_volume_training_spectral_only ? N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY : N_VOLUME_TARGET_DIMS;
 	dims.n_pos = 3;
 	return dims;
 }
@@ -4857,11 +4860,12 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 	actual_batch_size = (actual_batch_size / BATCH_SIZE_GRANULARITY) * BATCH_SIZE_GRANULARITY;
 
 	if(actual_batch_size == 0) return;
-	
-	if(m_volume_batch_inputs.size() != actual_batch_size * N_VOLUME_INPUT_DIMS)
-	{
+	const uint64_t target_dims = m_volume_training_spectral_only
+										? N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY
+										: N_VOLUME_TARGET_DIMS;
+	if (m_volume_batch_inputs.size() != actual_batch_size * N_VOLUME_INPUT_DIMS) {
 		m_volume_batch_inputs.resize(actual_batch_size * N_VOLUME_INPUT_DIMS);
-		m_volume_batch_targets.resize(actual_batch_size * N_VOLUME_TARGET_DIMS);
+		m_volume_batch_targets.resize(actual_batch_size * target_dims);
 	}
 
         // Reshuffle indices at start of epoch
@@ -4907,7 +4911,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 		const float* training_targets_ptr = m_volume_training_targets_cpu;
 		gather_volume_random_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
 			(uint32_t)m_n_volume_training_samples, actual_batch_size, N_VOLUME_INPUT_DIMS,
-			N_VOLUME_TARGET_DIMS, training_inputs_ptr, training_targets_ptr, 
+			target_dims, training_inputs_ptr, training_targets_ptr, 
 			m_volume_batch_inputs.data(), m_volume_batch_targets.data(),
 			m_training_step
 		);
@@ -4922,7 +4926,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 		gather_volume_training_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
 			(uint32_t)actual_batch_size, 
 			N_VOLUME_INPUT_DIMS,
-			N_VOLUME_TARGET_DIMS, 
+			target_dims, 
 			m_volume_training_inputs.data(),
 			m_volume_training_targets.data(),
 			m_volume_training_shuffled_indices.data() + m_volume_training_epoch_offset, 
@@ -4936,7 +4940,7 @@ void Testbed::training_prep_pbrt(uint32_t batch_size, cudaStream_t stream)
 	{
 		gather_volume_random_batch_kernel<<<n_blocks, n_threads, 0, stream>>>(
 			(uint32_t)m_n_volume_training_samples, actual_batch_size, N_VOLUME_INPUT_DIMS,
-			N_VOLUME_TARGET_DIMS, m_volume_training_inputs.data(),
+			target_dims, m_volume_training_inputs.data(),
 			m_volume_training_targets.data(), m_volume_batch_inputs.data(),
 			m_volume_batch_targets.data(), m_training_step);
 	}
@@ -4965,8 +4969,12 @@ void Testbed::train_pbrt(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 		return;
 	}
 
+	const uint64_t target_dims = m_volume_training_spectral_only
+									? N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY
+									: N_VOLUME_TARGET_DIMS;
+
 	GPUMatrix<float> batch_input_matrix((float*)(m_volume_batch_inputs.data()), N_VOLUME_INPUT_DIMS, batch_size);
-	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), N_VOLUME_TARGET_DIMS, batch_size);
+	GPUMatrix<float> batch_target_matrix((float*)(m_volume_batch_targets.data()), target_dims, batch_size);
 
 
 	auto ctx =
@@ -5975,7 +5983,7 @@ void Testbed::save_model(const fs::path& path, bool include_optimizer_state, boo
 	snapshot["pbrt"]["batch_size"] = m_training_batch_size;
 	snapshot["pbrt"]["inputs_scale"] = m_volume_training_inputs_scale;
 	snapshot["pbrt"]["inputs_offset"] = m_volume_training_inputs_offset;
-	snapshot["pbrt"]["tMax_scale"] = m_volume_training_inputs_tMax_offset;
+	snapshot["pbrt"]["tMax_scale"] = m_volume_training_inputs_tMax_scale;
 	snapshot["pbrt"]["tMax_offset"] = m_volume_training_inputs_tMax_offset;
 	snapshot["pbrt"]["tAfter_scale"] = m_volume_training_inputs_tAfter_scale;
 	snapshot["pbrt"]["N_training_samples"] = m_n_volume_training_samples;
@@ -6079,7 +6087,7 @@ void Testbed::load_model(const fs::path& path)
 	m_training_batch_size = m_n_volume_batch_size;
 	m_volume_training_inputs_scale = snapshot["pbrt"]["inputs_scale"];
 	m_volume_training_inputs_offset = snapshot["pbrt"]["inputs_offset"];
-	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_scale"];
+	m_volume_training_inputs_tMax_scale = snapshot["pbrt"]["tMax_scale"];
 	m_volume_training_inputs_tMax_offset = snapshot["pbrt"]["tMax_offset"];
 	m_volume_training_inputs_tAfter_scale = snapshot["pbrt"].value("tAfter_scale", m_volume_training_inputs_tAfter_scale); //default to 1.6
 	m_n_volume_training_samples	 = snapshot["pbrt"]["N_training_samples"];
@@ -6277,9 +6285,9 @@ __global__ void generate_slice_inputs(
 
 	vec3 pos;
 	pos.x = u;
-	pos.y = v;
+	pos.y = slice_z;
 
-	pos.z = slice_z;
+	pos.z = v;
 
 	vec3 warped_pos = pos;
 
@@ -6322,7 +6330,7 @@ void Testbed::compute_and_save_png(
         write_stbi(filename, (int)res.x, (int)res.y, n_channels_to_save, img_data.data());
 }
 
-void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmittance, bool useOldTransmittance)
+void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmittance, bool useOldTransmittance, bool output_pos)
 {
 	if(!m_network)
 	{
@@ -6339,7 +6347,7 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 
 	
 	GPUMatrix<float> network_input(7, n_elements, stream);
-	GPUMatrix<float> network_output(6, n_elements, stream);
+	GPUMatrix<float> network_output(4, n_elements, stream);
 
 
 	const dim3 threads = {128, 1, 1};
@@ -6352,13 +6360,13 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 
 	m_network->inference(stream, network_input, network_output);
 	
-	std::vector<float> cpu_output(n_elements * 6);
+	std::vector<float> cpu_output(n_elements * 4);
 	
 	CUDA_CHECK_THROW(
 		cudaMemcpyAsync(
 			cpu_output.data(),
 			network_output.data(),
-			n_elements * 6 * sizeof(float),
+			n_elements * 4 * sizeof(float),
 			cudaMemcpyDeviceToHost,
 			stream
 		)
@@ -6371,61 +6379,109 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 	if(!useOldTransmittance)
 	{
 		tlog::info() << "Scaling by: " << m_volume_training_inputs_tAfter_scale;
+		tlog::info() << "Tmax scale is " << m_volume_training_inputs_tMax_scale;
+		tlog::info() << "Position scale is " << m_volume_training_inputs_scale;
+		tlog::info() << "Position offset: [" << m_volume_training_inputs_offset.x << " " 
+			<< m_volume_training_inputs_offset.y << " "
+			<< m_volume_training_inputs_offset.z << "]";	
 	}
-	for(uint32_t i = 0; i < n_pixels; ++i)
-	{
+        const int t_offset = m_volume_training_spectral_only
+                                 ? T_OFFSET_SPECTRAL_TRANSMISSION_ONLY
+                                 : T_OFFSET;
+        for (uint32_t i = 0; i < n_pixels; ++i) {
 
-		float raw_r = cpu_output[i * 6 + T_OFFSET + 0];
-		float raw_g = cpu_output[i * 6 + T_OFFSET + 1];
-		float raw_b = cpu_output[i * 6 + T_OFFSET + 2];
-
-		float r, g, b;
-
-		if(isTransmittance)
-		{
-			if(useOldTransmittance)
+			if(m_volume_training_spectral_only)
 			{
-				float r_op = 1.f - (raw_r);
-				float g_op = 1.f - (raw_g);
-				float b_op = 1.f - (raw_b);
-				
-				img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, r_op)) * 255.f;
-				img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
-				img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, b_op)) * 255.f;
+				float lambda0 = cpu_output[i * 4 + t_offset + 0] * m_volume_training_inputs_tAfter_scale;
+				float lambda1 = cpu_output[i * 4 + t_offset + 1] * m_volume_training_inputs_tAfter_scale;
+				float lambda2 = cpu_output[i * 4 + t_offset + 2] * m_volume_training_inputs_tAfter_scale;
+				float lambda3 = cpu_output[i * 4 + t_offset + 3] * m_volume_training_inputs_tAfter_scale;
+
+                // Simple luminance-based grayscale using CIE Y matching function
+                // at 420nm: 0.0040, 540nm: 0.9540, 600nm: 0.6310, 700nm: 0.0041
+                float Y = 0.25f * (lambda0 * 0.0040f + lambda1 * 0.9540f + lambda2 * 0.6310f + lambda3 * 0.0041f);
+
+                // Normalize so that T=(1,1,1,1) maps to Y=1
+                // flat spectrum gives Y = 0.25 * (0.0040 + 0.9540 + 0.6310 + 0.0041) = 0.3983
+                static constexpr float Y_norm = 0.3983f;
+                Y /= Y_norm;
+
+                if (isTransmittance) {
+                    // Show as opacity: 1 - T
+                    float opacity = 1.f - std::min(1.f, std::max(0.f, Y * m_volume_training_inputs_tAfter_scale));
+                    img_rgb[i * 3 + 0] = opacity;
+                    img_rgb[i * 3 + 1] = opacity;
+                    img_rgb[i * 3 + 2] = opacity;
+                } else {
+                    // Reinhard tonemap for display
+                    Y = std::max(0.f, Y);
+                    float val = Y / (1.f + Y);
+                    img_rgb[i * 3 + 0] = val;
+                    img_rgb[i * 3 + 1] = val;
+                    img_rgb[i * 3 + 2] = val;
+                }
 			}
 			else
 			{
-				float r_op = 1.f - (raw_r * m_volume_training_inputs_tAfter_scale);
-				float g_op = 1.f - (raw_g * m_volume_training_inputs_tAfter_scale);
-				float b_op = 1.f - (raw_b * m_volume_training_inputs_tAfter_scale);
+
+				float raw_r = cpu_output[i * 6 + t_offset + 0];
+				float raw_g = cpu_output[i * 6 + t_offset + 1];
+				float raw_b = cpu_output[i * 6 + t_offset + 2];
 				
-				r = std::max(0.f, std::min(1.f, r_op));
-				g = std::max(0.f, std::min(1.f, g_op));
-				b = std::max(0.f, std::min(1.f, b_op));
-
-
-				img_rgb[i * 3 + 0] = r;
-				img_rgb[i * 3 + 1] = r;
-				img_rgb[i * 3 + 2] = r;
+				float r, g, b;
+				
+				if (isTransmittance) {
+					if (useOldTransmittance) {
+						float r_op = 1.f - (raw_r);
+						float g_op = 1.f - (raw_g);
+						float b_op = 1.f - (raw_b);
+						
+						img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, r_op)) * 255.f;
+						img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
+						img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, b_op)) * 255.f;
+					} else {
+						float r_op = 1.f - (raw_r * m_volume_training_inputs_tAfter_scale);
+						float g_op = 1.f - (raw_g * m_volume_training_inputs_tAfter_scale);
+						float b_op = 1.f - (raw_b * m_volume_training_inputs_tAfter_scale);
+						
+						r = std::max(0.f, std::min(1.f, r_op));
+						g = std::max(0.f, std::min(1.f, g_op));
+						b = std::max(0.f, std::min(1.f, b_op));
+						
+						img_rgb[i * 3 + 0] = r;
+						img_rgb[i * 3 + 1] = g;
+						img_rgb[i * 3 + 2] = b;
+					}
+				} else {
+					float log_r = cpu_output[i * 6 + 0];
+					float log_g = cpu_output[i * 6 + 1];
+					float log_b = cpu_output[i * 6 + 2];
+					
+					constexpr float eps = 1e-1f;
+					if (output_pos && (log_r >= eps || log_g >= eps || log_b >= eps)) {
+						int x = i % res;
+						int y = i / res;
+						float u = (float)x / (float)(res - 1);
+						float v = (float)y / (float)(res - 1);
+						
+						u = (u - m_volume_training_inputs_offset.x) /
+                        m_volume_training_inputs_scale;
+						v = (v - m_volume_training_inputs_offset.y) /
+                        m_volume_training_inputs_scale;
+						tlog::info() << "Radiance non-zero at [ " << u << ", " << v << " ]";
+					}
+					
+					r = std::max(0.f, std::exp(log_r) - 1.f);
+					g = std::max(0.f, std::exp(log_g) - 1.f);
+					b = std::max(0.f, std::exp(log_b) - 1.f);
+					img_rgb[i * 3 + 0] = r / (1.f + r);
+					img_rgb[i * 3 + 1] = g / (1.f + g);
+					img_rgb[i * 3 + 2] = b / (1.f + b);
+				}
 			}
-		}
-		else
-		{
-			float log_r = cpu_output[i * 6 + 0];
-			float log_g = cpu_output[i * 6 + 1];
-			float log_b = cpu_output[i * 6 + 2];
-			r = std::max(0.f, std::exp(log_r) - 1.f);
-			g = std::max(0.f, std::exp(log_g) - 1.f);
-			b = std::max(0.f, std::exp(log_b) - 1.f);
-			img_rgb[i * 3 + 0] = r / (1.f + r);
-			img_rgb[i * 3 + 1] = g / (1.f + g);
-			img_rgb[i * 3 + 2] = b / (1.f + b);
-		}
+        }
 
-
-	}
-
-	tlog::info() << "Dumped slice to " << native_string(path);
+        tlog::info() << "Dumped slice to " << native_string(path);
 	compute_and_save_png(path, {res, res}, 3, false, img_rgb.data(), 3);
 	cudaStreamDestroy(stream);
 }

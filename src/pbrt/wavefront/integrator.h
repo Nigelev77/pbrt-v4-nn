@@ -277,6 +277,7 @@ namespace pbrt
         void InitNGP(std::string modelPath);
 
         void InferNGP(uint64_t batchSize, float* d_inputs, float* d_outputs);
+        void TransmissionOnly(int wavefrontDepth);
 
         float* inferInputs = nullptr;
         float* inferOutputs = nullptr;

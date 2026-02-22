@@ -48,11 +48,15 @@ struct GLFWwindow;
 
 static constexpr uint32_t N_VOLUME_INPUT_DIMS = 7;
 static constexpr uint32_t N_VOLUME_TARGET_DIMS = 6;
+static constexpr uint32_t N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY = 4;
+static constexpr uint32_t N_VOLUME_TARGET_DIMS_SPECTRAL = 4;
 static constexpr uint32_t POS_OFFSET = 0;
 static constexpr uint32_t DIR_OFFSET = 3;
 static constexpr uint32_t TMAX_OFFSET = 6;
 static constexpr uint32_t L_OFFSET = 0;
 static constexpr uint32_t T_OFFSET = 3;
+static constexpr uint32_t T_OFFSET_SPECTRAL_TRANSMISSION_ONLY = 0;
+
 
 
 
@@ -1355,6 +1359,9 @@ public:
 
 	float m_volume_training_inputs_tAfter_scale = 1.6f;
 
+
+	bool m_volume_training_spectral_only = true;
+
         // PBRT Batch data
 	GPUMemory<float> m_volume_batch_inputs;
 	GPUMemory<float> m_volume_batch_targets;
@@ -1372,7 +1379,7 @@ public:
 
 	void compute_and_save_png(const fs::path& filename, const vec2& resolution, int channel_stride, bool is_srgb, const float* data, int n_channels_to_save, float scale = 1.0f);
 
-	void dump_slice_img(const fs::path &path, float z_slice = 0.5f, bool isTransmittance = false, bool useOldTransmittance = false);
+	void dump_slice_img(const fs::path &path, float z_slice = 0.5f, bool isTransmittance = false, bool useOldTransmittance = false, bool output_pos = false);
 
 	void dump_validation_scatter_data(const fs::path &path, uint32_t n_samples = 10000);
 };
