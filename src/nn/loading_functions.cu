@@ -1123,7 +1123,14 @@ void load_nerfdataset(Testbed& testbed, const fs::path& data_path)
     for(size_t i = 0; i < paths.size(); ++i)
     {
         // load_dataset_to_testbed(testbed, paths[i], DatasetType::Training);
-        load_dataset_to_testbed_spectral(testbed, paths[i], DatasetType::Training);
+        if(testbed.m_volume_training_spectral_only)
+        {
+            load_dataset_to_testbed_spectral(testbed, paths[i], DatasetType::Training);
+        }
+        else
+        {
+            load_dataset_to_testbed(testbed, paths[i], DatasetType::Training);
+        }
     }
     return;
 }

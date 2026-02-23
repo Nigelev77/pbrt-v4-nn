@@ -386,7 +386,7 @@ namespace pbrt
         maxInferenceBatchSize = maxQueueSize;
         int paddedMaxBatch = (int)tcnn::next_multiple(
             (uint64_t)maxInferenceBatchSize, (uint64_t)tcnn::BATCH_SIZE_GRANULARITY);
-        const uint target_size = 4;
+        const uint target_size = Options->useSpectralModel ? 4 : 6;
 
 #ifdef PBRT_BUILD_GPU_RENDERER
         if (Options->useGPU) {
@@ -1206,6 +1206,7 @@ namespace pbrt
         if (!m_Testbed) {
             m_Testbed = std::make_shared<Testbed>();
             auto &testbed = *m_Testbed.get();
+            testbed.m_volume_training_spectral_only = Options->useSpectralModel;
 
             tlog::info() << "Loading model file from " << modelPath;
 
@@ -1244,7 +1245,7 @@ namespace pbrt
 
         constexpr uint32_t BATCH_GRANULARITY = tcnn::BATCH_SIZE_GRANULARITY;
         constexpr uint32_t N_VOLUME_INPUT_DIMS = 7;
-        constexpr uint32_t N_VOLUME_TARGET_DIMS = 4;
+        const uint32_t N_VOLUME_TARGET_DIMS = Options->useSpectralModel ? 4 : 6;
         uint32_t n_padded =
             (uint32_t)tcnn::next_multiple(nItems, (uint64_t)BATCH_GRANULARITY);
 

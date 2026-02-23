@@ -6285,9 +6285,9 @@ __global__ void generate_slice_inputs(
 
 	vec3 pos;
 	pos.x = u;
-	pos.y = slice_z;
+	pos.y = v;
 
-	pos.z = v;
+	pos.z = slice_z;
 
 	vec3 warped_pos = pos;
 
@@ -6345,9 +6345,9 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 	cudaStream_t stream;
 	CUDA_CHECK_THROW(cudaStreamCreate(&stream));
 
-	
+	const uint64_t output_size = m_volume_training_spectral_only ? 4 : 6;
 	GPUMatrix<float> network_input(7, n_elements, stream);
-	GPUMatrix<float> network_output(4, n_elements, stream);
+	GPUMatrix<float> network_output(output_size, n_elements, stream);
 
 
 	const dim3 threads = {128, 1, 1};
@@ -6360,13 +6360,13 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 
 	m_network->inference(stream, network_input, network_output);
 	
-	std::vector<float> cpu_output(n_elements * 4);
+	std::vector<float> cpu_output(n_elements * output_size);
 	
 	CUDA_CHECK_THROW(
 		cudaMemcpyAsync(
 			cpu_output.data(),
 			network_output.data(),
-			n_elements * 4 * sizeof(float),
+			n_elements * output_size * sizeof(float),
 			cudaMemcpyDeviceToHost,
 			stream
 		)
@@ -6392,10 +6392,10 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 
 			if(m_volume_training_spectral_only)
 			{
-				float lambda0 = cpu_output[i * 4 + t_offset + 0] * m_volume_training_inputs_tAfter_scale;
-				float lambda1 = cpu_output[i * 4 + t_offset + 1] * m_volume_training_inputs_tAfter_scale;
-				float lambda2 = cpu_output[i * 4 + t_offset + 2] * m_volume_training_inputs_tAfter_scale;
-				float lambda3 = cpu_output[i * 4 + t_offset + 3] * m_volume_training_inputs_tAfter_scale;
+				float lambda0 = cpu_output[i * output_size + t_offset + 0] * m_volume_training_inputs_tAfter_scale;
+				float lambda1 = cpu_output[i * output_size + t_offset + 1] * m_volume_training_inputs_tAfter_scale;
+				float lambda2 = cpu_output[i * output_size + t_offset + 2] * m_volume_training_inputs_tAfter_scale;
+				float lambda3 = cpu_output[i * output_size + t_offset + 3] * m_volume_training_inputs_tAfter_scale;
 
                 // Simple luminance-based grayscale using CIE Y matching function
                 // at 420nm: 0.0040, 540nm: 0.9540, 600nm: 0.6310, 700nm: 0.0041
@@ -6424,9 +6424,9 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 			else
 			{
 
-				float raw_r = cpu_output[i * 6 + t_offset + 0];
-				float raw_g = cpu_output[i * 6 + t_offset + 1];
-				float raw_b = cpu_output[i * 6 + t_offset + 2];
+				float raw_r = cpu_output[i * output_size + t_offset + 0];
+				float raw_g = cpu_output[i * output_size + t_offset + 1];
+				float raw_b = cpu_output[i * output_size + t_offset + 2];
 				
 				float r, g, b;
 				
@@ -6453,9 +6453,9 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 						img_rgb[i * 3 + 2] = b;
 					}
 				} else {
-					float log_r = cpu_output[i * 6 + 0];
-					float log_g = cpu_output[i * 6 + 1];
-					float log_b = cpu_output[i * 6 + 2];
+					float log_r = cpu_output[i * output_size + 0];
+					float log_g = cpu_output[i * output_size + 1];
+					float log_b = cpu_output[i * output_size + 2];
 					
 					constexpr float eps = 1e-1f;
 					if (output_pos && (log_r >= eps || log_g >= eps || log_b >= eps)) {

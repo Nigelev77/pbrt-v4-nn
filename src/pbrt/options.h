@@ -63,6 +63,7 @@ struct PBRTOptionsNN : PBRTOptions
     int numberOfOrientations = 1;
     std::string modelPath = "/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack";
     bool useNGP = true;
+    bool useSpectralModel = true;
     std::string ToString() const;
 };
 

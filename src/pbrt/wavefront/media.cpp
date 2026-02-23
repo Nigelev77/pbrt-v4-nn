@@ -227,8 +227,8 @@ namespace pbrt
                         // }
                         to_use = std::max(0.f, (T_i - 0.55f) / 0.45f);
                         betaAfter[i] = to_use * betaBefore[i];
-                        ruAfter[i] = to_use * ruBefore[i];
-                        rlAfter[i] = to_use * rlBefore[i];
+                        ruAfter[i] = T_i * ruBefore[i]; // To get smoky effect need to use T_i or just pass thru ruAfter
+                        rlAfter[i] = T_i * rlBefore[i]; // To get smoky effect need to use T_i or just pass thru rlAfter
                     }
                     
                     // if(slot < 5)
@@ -373,10 +373,14 @@ namespace pbrt
             return;
         if(!m_Testbed)
             return;
-        if(true)
+        if(Options->useSpectralModel)
         {
             TransmissionOnly(wavefrontDepth);
             return;
+        }
+        else
+        {
+            LOG_VERBOSE("Im here");
         }
         RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
 
@@ -394,12 +398,13 @@ namespace pbrt
         SampledSpectrum *d_ruAfter = inferRuAfter;
         SampledSpectrum *d_rlBefore = inferRlBefore;
         SampledSpectrum *d_rlAfter = inferRlAfter;
-
+        
         const float posScale = m_Testbed->m_volume_training_inputs_scale;
         const vec3 posOffset = m_Testbed->m_volume_training_inputs_offset;
         const float tMaxScale = m_Testbed->m_volume_training_inputs_tMax_scale;
         const float tMaxOffset = m_Testbed->m_volume_training_inputs_tMax_offset;
-
+        const float tAfterScale = m_Testbed->m_volume_training_inputs_tAfter_scale;
+        LOG_VERBOSE("Tafter scale is %f", tAfterScale);
         // Reset item count
         Do("Reset NGP item count", PBRT_CPU_GPU_LAMBDA() { *d_itemCount = 0; });
 
@@ -499,7 +504,6 @@ namespace pbrt
             // ******************************************
             // Step 4: Read network outputs and use to calculate new Le and beta values   
             // ******************************************
-
             ParallelFor(
                 "Unpack NGP medium outputs", nItems, PBRT_CPU_GPU_LAMBDA(int slot) {
                     constexpr int N_OUT = 6;
@@ -525,18 +529,20 @@ namespace pbrt
                     const RGBFilm *rgbFilm = film.CastOrNullptr<RGBFilm>();
                     const RGBColorSpace *cs = rgbFilm ? rgbFilm->colorSpace : nullptr;
 
-                    RGB Le_rgb(Lr_actual, Lr_actual, Lr_actual);
+                    RGB Le_rgb(Lr_actual, Lg_actual, Lb_actual);
                     RGB T_rgb(T_r, T_g, T_b);
+
+                    T_rgb *= tAfterScale;
 
                     SampledSpectrum L_added(0.f);
                     SampledSpectrum betaAfter = betaBefore;  // no attenutation by default
                     SampledSpectrum ruAfter = ruBefore;
                     SampledSpectrum rlAfter = rlBefore;
-
+                    
                     if(cs)
                     {
                         RGBIlluminantSpectrum Le_spec(*cs, ClampZero(Le_rgb));
-                        RGBUnboundedSpectrum T_spec(*cs, Clamp(T_rgb, 0.f, 1.f)); //NOTE: Should we Clamp 0,1 here?
+                        RGBUnboundedSpectrum T_spec(*cs, T_rgb); //NOTE: Should we Clamp 0,1 here?
 
                         for(int i = 0; i < NSpectrumSamples; ++i)
                         {
@@ -545,6 +551,18 @@ namespace pbrt
                             betaAfter[i] = T_i * betaBefore[i];
                             ruAfter[i] = T_i * ruBefore[i];
                             rlAfter[i] = T_i * rlBefore[i];
+                            if(L_added[i] > 1e-2f)
+                            {
+                                L_added[i] *= 10.f;
+                                betaAfter[i] = 1e-3f;
+                                ruAfter[i] = 1e-3f;
+                                rlAfter[i] = 1e-3f;
+                            }
+                            // else {
+                                // betaAfter[i] = 0.f;
+                                // ruAfter[i] = 0.f;
+                                // rlAfter[i] = 0.f;
+                            // }
                         }
                     }
                     // Store attenuated beta for dispatch loop
@@ -553,7 +571,7 @@ namespace pbrt
                     d_rlAfter[slot] = rlAfter;
 
                     SampledSpectrum Lp = pixelSampleState.L[pixelIndex];
-                    pixelSampleState.L[pixelIndex] = Lp + L_added * 100.f;            
+                    pixelSampleState.L[pixelIndex] = L_added;
                 });
 
             // ******************************************

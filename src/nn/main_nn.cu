@@ -345,12 +345,15 @@ int main(int argc, char** argv)
             "use-old-T"
         }
     };
+
+    Flag Use_Spectral_Mode{
+        parser, "USE_SPECTRAL_FLAG", "Whether to use spectral mode", {"spectral"}};
     // Flag no_gui_flag{
-	// 	parser,
-	// 	"NO_GUI",
-	// 	"Disables the GUI and instead reports training progress on the command line.",
-	// 	{"no-gui"},
-	// };
+    // 	parser,
+    // 	"NO_GUI",
+    // 	"Disables the GUI and instead reports training progress on the command line.",
+    // 	{"no-gui"},
+    // };
 
     // Parse command line arguments and react to parsing
 	// errors using exceptions.
@@ -398,7 +401,7 @@ int main(int argc, char** argv)
 
     Testbed testbed;
     testbed.m_perform_epoch_based_training = perform_epoch_based_training_flag;
-
+    testbed.m_volume_training_spectral_only = Use_Spectral_Mode;
     // Initialize window early to establish GL context before CUDA operations
     tlog::info() << "Initializing window...";
     // testbed.init_window(1920, 1080);
