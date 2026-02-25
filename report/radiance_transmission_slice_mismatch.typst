@@ -1,0 +1,5 @@
+/**
+ * Document to explain why for some network configurations, there is not transmission cloud due to the mismatch of coordinates/offset of coordinates of radiance which gives 0 transmittance and the actual transmittance cloud from smoke
+ *
+ *
+ *

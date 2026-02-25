@@ -371,9 +371,10 @@ $
     [*Training and Model Visualization*],
     [*Pipeline-Model Integration*],
     [*Inference*],
-    [*Evaluation*],
   )
 ]
+
+
 
 
 #heading(depth: 2)[
@@ -389,17 +390,19 @@ $
 
   The outputs, or targets for the model, are:
   - Intrinsic emitted Radiance ($L_"intrinsic"$) added from the medium
-  - Transmittance $T$ of the ray after passing through the medium
+  - Weighted Throughput Ratio $T$ of the ray after passing through the medium
 
   //!TODO: Consider using a table here/diagram like in other papers
 
-  The outputs of this model are the $T$ transmittance values of the ray describing the proportion of incident radiance has been attenuated and $L_e$ the radiance added from volume emission (such as from fire). The other important values that needs to be extracted at the end is calculated from the $beta$ transmission value before and after the current ray was traced. The reason for that comes from how $beta$ is used in conjunction with $L_e$ and calculating throughput/transmittance. Firstly, the beta acts as an "accumulated throughput" of the ray along its journey around the scene. In pbrt during medium scattering sampling, it samples $T_"maj"$ of the medium and the radiance emitted is scaled by this $beta$ value. Thus, the $L_e$ output from this kernel is the scaled radiance dependent on the path the ray has taken previously (so light sources and scattering effects have less of an impact on a ray further along the path since it would be "dimmer"). We need to train this to calculate the intrinsic brightness the medium adds to rays irrespective of the rays previous bounces, which requires dividing $L_e$ with the current $beta$ value:
+  One important thing to note,  initially, the network was trained with the intent that it learns *pure transmittance*, however upon further examination of results and the code, it instead learned a *weighted throughput ratio* due to *Multiple Importance Sampling* (MIS). A more rigorous explanation is given in `tafter_linear_scaling.typst` file but the gist of it is that PBRT is a spectral path tracer and thus samples scattering events dependent on the first sampled wavelength. To remain an unbiased estimator, it then divides by the probability of the sampled event to compensate for the other sampled wavelengths. This doesn't change how it is integrated back into the network, but does affect some of its wider scale application or eventual results.
+
+  The outputs of this model are the $T$ weighted throughput ratio values of the ray describing the proportion of incident radiance has been attenuated and $L_e$ the radiance added from volume emission (such as from fire) which is scaled for MIS. The other important values that needs to be extracted at the end is calculated from the $beta$ transmission value before and after the current ray was traced. The reason for that comes from how $beta$ is used in conjunction with $L_e$ and calculating throughput/transmittance. Firstly, the beta acts as an "accumulated throughput" of the ray along its journey around the scene. In pbrt during medium scattering sampling, it samples $T_"maj"$ of the medium and the radiance emitted is scaled by this $beta$ value. Thus, the $L_e$ output from this kernel is the scaled radiance dependent on the path the ray has taken previously (so light sources and scattering effects have less of an impact on a ray further along the path since it would be "dimmer"). We need to train this to calculate the intrinsic brightness the medium adds to rays irrespective of the rays previous bounces, which requires dividing $L_e$ with the current $beta$ value:
 
   $
     L_"intrinsic" = (L_e)/beta_"current"
   $
 
-  Similarly, the transmittance $T$ will need to be calculated from both the $beta_"current"$ before the sample medium scattering kernel started and the $beta_"new"$ calculated via scaling by $T_"maj"$ as the ray is traced through the medium. Thus to calculate the $T$ transmittance of the ray through the medium only, we need to divide the fraction of light that comes out of the medium by the fraction of light that entered it.
+  Similarly, the weighted throughput ratio $T$ will need to be calculated from both the $beta_"current"$ before the sample medium scattering kernel started and the $beta_"new"$ calculated via scaling by $T_"maj"$ as the ray is traced through the medium. Thus to calculate the $T$ weighted throughput ratio of the ray through the medium only, we need to divide the fraction of light that comes out of the medium by the fraction of light that entered it.
 
   $
     T = beta_("new") / beta_("current")
@@ -421,6 +424,23 @@ $
 
   /*!TODO: Provide snippet of where in the code i modified*/
 ]
+
+#heading(depth: 3)[
+  #set text(size: 11pt)
+  Training Scene
+]
+
+#p(3)[
+  The scene I decided to train on was the `explosion.pbrt` scene given in the PBRT-v4 scenes repository /*!TODO: Provide link here*/ as it was a scene that had a non-zero volume emission (from the flame) and transmittance (from the smoke). Here is an image from the default scene render
+
+  #align(center)[
+    #image(
+      "../images/explosion.png",
+      height: 25%,
+    )
+  ]
+]
+
 
 #heading(depth: 3)[
   #set text(size: 11pt)
@@ -474,6 +494,26 @@ $
   Data Visualization
 ]
 
+#p(3)[
+  Here are some graphs visualizing 75,000 samples of the trainig data:
+  /*!TODO: Wrap in a Figure block to put captions*/
+  #align(center)[
+
+    #image(
+      "../images/training_visualized_graphs/ray_origins.png",
+      height: 25%,
+    )
+  ]
+
+  #image-grid(
+    "../images/training_visualized_graphs/Le.png",
+    "../images/training_visualized_graphs/tafter.png",
+    "../images/training_visualized_graphs/betabefore.png",
+    "../images/training_visualized_graphs/tmax.png",
+    columns: 2,
+  )
+]
+
 #heading(depth: 3)[
   #set text(size: 10pt)
   Data Normalization
@@ -521,10 +561,10 @@ $
       [0, 1]
     ],
     [
-      _RGB Transmittance_ $T (r, g, b)$
+      _Weighted Throughput Ratio_ $T (r, g, b)$
     ],
     [
-      $[0, 1]$
+      $[0, infinity]$
     ],
     [
       $[0, 1]$
@@ -585,8 +625,10 @@ $
 
 #heading(depth: 4)[
   #set text(size: 9.5pt)
-  Transmittance $T$
+  Weighted Throughput Ratio $T$
 ]
+
+
 
 #p(4)[
   For transmittance, we take the approach to ensure that it is in the range $[0, 1]$ as it only makes sense if we consider it as a fraction of light that transmits through. However, due to the logging code and how I performed calculations to calculate the isolated transmittance within one ray sampling step in `media.cpp`
@@ -599,8 +641,183 @@ $
   SampledSpectrum T_target = beta / beta_before;
   ```
   causes some $T$ values to have a higher transmittance value $1$. For example, if the path already had a $beta=0.5$ meaning the cumulative throughput before this bounce was only 0.5 and then the beta after was calculated to be 0.8 (due to random sampling and probability above) /*!TODO: Look in pbrt-v4 to confirm this*/ then the overall transmittance value is calculated to be $>1$. However, this may not only cause divergence in training, but also doesn't make physical sense. Therefore, I chose to clamp these values to 1 as this will still allow the network to learn what should phyically happen other than this noise due to random sampling.
+
+  There are a few consequences of the network learning weighted throughput ratio values.Firstly, this network architecture only works for spectral MIS path tracing. Secondly, since there is a conversion to RGB via an `ToOutputRGB` call which performs tonemapping and readjustment dependent on colourspace, there is some /*!TODO: Give better explanation here*/ bias and will potentially look different for different scene configurations of sensor models or colorspaces used, since it does not learn pure transmittance.
+
+  Furthermore, due to the `ToOutputRGB`, some useful data will inevitably be lost /*!TODO: Justify why the network is RGB instead of the pbrt spectral model*/ as in the test scene, there are 4 wavelengths considered compared to just the 3 RGB outputs and thus may overadjust the green to have larger values (as its spectrum is generally wider than red and blue) /*!TODO: Make section about the scene itself and the settings, particularly the nikon d850*/ so the inferred image will be biased due to this as well as the network architecture potentially not being fit for all scenes, especially for scenes that have a much higher number of sampled wavelengths.
+
+  Therefore, initially this was clamped to between $[0, 1]$ as it was assumed that the `SampleMediumInteraction` function logged pure transmittance and thus any transmittance logged that was larger than $1$ was physically impossible, but with the new knowledge, it makes sense to for values to be more than 1 to compensate. More details are in `clamp_experiments.typst` file. So instead a *linear scaling* is performed, similar to the normalization of `tMax`, where the values are divided by the max transmittance value to ensure they are between $[0, 1]$ when fed into the network. This scaling is then kept in `m_volume_training_tAfter_scale` variable which is used when loading validation and test data as well as inference preparation.
 ]
 
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Validation Testing and Hyperparameter Evaluation
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Validation Testing and Batching Strategy
+]
+
+#p(3)[
+  Since there is no valid batching method for the custom data pipeline for this model, I needed to implement it myself. It is impractical to have the model train on the entire train set every iteration and there is evidence in previous studies (@nvidia_instant_ngp and @mildenhall2020nerfrepresentingscenesneural) that training on a randomized large batch is sufficient so the validation testing uses minibatch-SGD to perform both training and validation testing using a batch size of $2^19$ with replacement done via a GPU kernel which generates random indices and indexes the training/validation test set. Each run trains the model fo 50,000 iterations and every 5,000 iterations it calculated the validation error and then calculate the final validation error after the 50,000 iterations.
+
+  However, one important thing to note is that the due to the size of both the train and validation set, they both cannot fit in memory at the same time, therefore I decided to calculate the ongoing validation error on a fixed size of $2^19$ (aka 1 batch) samples. The reason is because it allows me to evaluate the general trend of the validation error over time as opposed to a final validation error that may be going down but not the lowest error among the configurations.
+]
+
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Hyperparameter setup
+]
+
+#p(3)[
+  The main hyperparameters to test for are hyperparameters regarding the multi-resolution hashgrid, the Fully Fused MLP and the learning rate. The way this was tested was to run validation testing on each hyperparameter, just slightly different to the default configuration given in `default_config.json`. This default configuration is based off of the configuration that gave the best results in the Instant NGP paper @nvidia_instant_ngp. Below is the default configuration, as well as a table of different configuration values tested
+
+
+]
+
+
+#align(center)[
+
+  #table(
+    columns: (auto, auto, auto, auto),
+    align: horizon,
+    table.header([*Hyperparameter*], [Values Tested], [*Hyperparameter*], [Input Range]),
+    [
+      FF MLP `n_neurons`
+    ],
+    [
+      32, 64, 128
+    ],
+    [
+      FF MLP `n_hidden_layers`
+    ],
+    [
+      2, 3, 4
+    ],
+
+    [
+      Hashgrid `n_levels`
+    ],
+    [
+      20, 16, 12, 8, 4, 2, 1
+    ],
+
+    [
+      Hashgrid `log2_hashmap_size`
+    ],
+    [
+      21, 19, 17, 15, 13, 11
+    ],
+    [
+      Hashgrid `baseres`
+    ],
+    [
+      32, 24, 16
+    ],
+
+    [
+      Spherical Harmonics Degree
+    ],
+    [
+      6, 4, 2
+    ],
+
+    [
+      `tMax` `nFreq`
+    ],
+    [
+      4, 6, 8
+    ],
+    [
+      Learning rate $eta$
+    ],
+    [
+      $1^(-1), 5^(-2), 1^(-2), 5^(-3), 1^(-3), 5^(-4), 1^(-4)$
+    ],
+
+    [
+      Loss Function
+    ],
+    [
+      L2, L1, RelativeL2
+    ],
+  )
+]
+
+
+
+
+#p(3)[
+  The FF MLP hyperparameters detail how large the final inference MLP is whereas the Hashgrid detail how large the hashgrid that learns a scene representation and which generates feature vectors from the input position. A larger n_levels value means more hashgrid resolutions which can lead to more collisions but also a finer, more detailed representation of the scene. `log2_hashmap_size` details the size of the hashmap used to get the feature vector values once the positions in the grid have been calculated, so a larger hashmap size the more fine control on features to learn /*!TODO: Write a better explanation for what log2_hashmap_size does*/. The hashgrid `baseres` parameter details the size of the base resolution of the first level of the hashgrid is which plays with the `per_level_scale` which determines how much more fine (how many bins in each dimension) the hashgrid for the next level up has. Finally, the Spherical Harmonics Degree and the `nFreq` detail how those values are encoded as directional/auxilliary data inputs.
+]
+
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Validation Testing Results
+]
+
+#p(3)[
+  See /*!TODO: Create an appendix for each figure/table/image that won't fit in this 10 page report*/. A summary of the results is that the validation error on the smaller hashgrid and FF MLP hyperparameters (to a point) was a lot better than the validation error on larger hashgrid and FF MLP hyperparameters as you can see a lot of the PSNR stayed around 28 dB. Furthermore, the hyperparameters for the SHdegree and `nFreq` didn't have much of a difference but did affect the time taken to train slightly. It also listed a lower learning rate of about $1^(-3)$ to be much stabler than the higher ones but large enough to learn/converge quickly. Finally, RelativeL2 had a lower loss than L2 and L1.
+
+  The final "chosen" configuration is detailed in `initial_config.json`. /*!TODO: Create this initial config json file*/
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Training and Model Visualization
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Model Training
+]
+
+#p(3)[
+  For training, the model was trained for 100,000 iterations on the chosen configurations, with test error calculated every 10,000 iterations on the test set. As opposed to validation testing, the entire test set was used to calculate the test error. Below is a graph of the test error
+]
+
+
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Model Visualization and Issues
+]
+
+#p(3)[
+  The results from the validation testing section seemed to indicate a much lower network capacity would generalize/learn better. However, the results can be misleading and these misleading results are due to the validation test set itself, all of this is explained in `validation_error_explanation.typst` However, another method to verify what and how well the model learned is to attempt to visualize slices of the scene to see how well the hashgrid learnt the scene itself. This is relatively common, especially in networks which have some sort of encoding (like the multi-resolution hash grid). I added functionality to take z-slices (horizontal slices since PBRT uses Z-up) of the whole scene's bounds (calculated from training data) and save them to images via `dump_slice_img`. The results can be seen in appendix /*!TODO: Add the images here or to the appendix*/. As you can see, the images look very blocky and inconsistent between slices and this is a consequence of the network being small itself. This would imply a much larger network would be better to learn from which goes against what the validation testing implies which makes sense as it would have more space to be able to learn a finer representation of the scene. However, this comes with its own challenges with learning the RGB radiance instead. All of this is explained in `network_fidelity_and_radiance.typst`
+
+  Therefore, I generated z-slices at specific intervals in my scene for a couple different configurations to determine which one to go with. These configurations are given in the /*!TODO: Generate those files to hold the configurations*/. Below are the results of those slices/The results are given in the appendix
+]
+
+#p(3)[
+  There are a couple things to note. Firstly in /*!TODO: Get configuration name for the one that has cyan*/ the radiances look off in X and X. This is likely due to the specific hashgrid configuration itself and is explained `magenta_radiance` (and green radiance). The other thing is for some of them, the background itself looks off, with a lot of cyan in it or just flat out blue. The reason for this is likely due to the RGB bias and the fact that it is trained off of a spectral path tracer. All of this is explained in `cyan_background.typst`.
+
+  However, you can see that the general shape for both radiance and the throughput can be seen to be similar to the actual shape of the explosion, with an expanding and contracting circular shape which would represent the fire/smoke and these slices are also consistent with each other in consecutive slices /*!TODO: Explain in which configuration those are in*/ which means that the network itself is actually learning the medium's transmittance itself as well as the radiance. This is the case when viewing y-slices too /*!TODO: Generate y-slices and add to report*/.
+
+  Furthermore, you can also see that in places which did not have much training data (like empty space on the floors around the flame) that there is a lot of random noise like bright spots/spots of high/low throughput. This makes sense as if the hashgrid did not get a lot of training data to push gradients towards learning that space, it would have a lot of random noise captured there. This is not inherently a bad thing as this could mean the spectral path tracer does not trace those areas and so does not need representing.
+
+  //*!TODO: Make sure to add a section about why it was initially chosen to use RGB instead of spectral due to the random nature of SampledSpectrum not guaranteeing that every iteration/pixel gets the same sampled wavelengths and so the final SampledWavelengths would not make sense as it would be random (would require adding `lambda` as an input potentially)
+]
+
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Pipeline-Model Integration and Inference
+]
+
+#p(2)[
+  The integration required considering how exactly the Instant-NGP `Testbed` functionality is included, either via directly adding as a member variable or adding a smaller amount of functionality for `tiny-cuda-nn` instead. The exact details are given in `pbrt_integration.typst`, where it describes why `Testbed` was added as a member variable and other specific details on how exactly the network was integrated and how the data was prepared and unpacked.
+
+  The basic gist is in a new `SampleMediumInteractionNGP` function which is called if a network is loaded and NGP is specified to be ran, it extracts data from `MediumInteractionWorkItem` queue and prepares them into a staging buffer to be inferred through the model. The predictions are then extracted and updates the `pixelSampleState` or passes on the calculated `beta` values by enqueue work in the proceeding kernels.
+
+  Fortunately, other than initializing staging buffers to pass through inference input/outputs, `r_l` and `r_u` and beta before/after and lambda before/after to store results from the network, all the changes required are just local to `SampleMediumInteractionNGP` and don't require change in other areas. This due to the wavefront architecture design leading to each kernel function being independent and isolated from the others, leading to changes to this/*!TODO improve this one area*/
+
+  However, due to the way the network is slotted into the wavefront architecture, it assumes the ray passes through the entire `tMax` distance into the medium and either leaves or hits another medium. Thus, no medium scattering occurs within the current medium so no `MediumScatteringWorkItem` is enqueued from the new `SampleMediumInteractionNGP` unlike the native way. There are also a couple side effects of this. Firstly, if the network detects emission at in front of the smoke, then it will cause it to skip the smoke behind it and not have dark non-transmittive cloud behind it and the opposite is true, if the network detects non-emittin low transmittance smoke in front of the emitting fire, it will not output any emission at all as it skips straight through. A more in depth exploration of this is given in `radiance_transmission_slice_mismatch.typst`. Another consequence of this volume skip through is that any shadow rays that would have been enqueued during `SampleMediumScattering` does not occur so indirect light or self-shadowing of the volume cannot occur. Overall, there are quite a few limitations that need to be considered during the evaluation of the model and the inference results.
+]
 
 
 
@@ -608,6 +825,55 @@ $
 #heading(depth: 1)[
   #set text(size: 12pt)
   Results and Evaluation
+]
+
+#heading(depth: 2)[
+  #set text(size: 12pt)
+  Results
+]
+
+#heading(depth: 2)[
+  #set text(size: 12pt)
+  Evaluating RGB-based Networks
+]
+
+
+#p(2)[
+  The resulting images, as seen in the appendix, paint a clear picture. There are clear issues with the fidelity and quality of emission and throughput. This is partially due to the restrictions given above of emission being behind throughput and volume emission having a corresponding throughput close to zero making it more difficult to render emissive areas. /*!TODO: give a better explanation*/ There may be some way to ensure the radiance is rendered regardless of whether the network thinks its in front or behind the network however this project will only consider a relatively simple integration of the model into PBRT as this would require significant divergence from the original algorithm. The throughput and radiance mismatch may also be alleviated with a higher fidelity hashgrid, but this comes with its own problems of not learning radiance as shown in `missing_radiance_in_larger_networks.typst`.
+
+  Thus, from hereon, we will consider using a different approach. We will consider evaluation of throughput only as opposed to also considering radiance as this gets a better idea of how well the network learnt the shape of the explosion/smoke and can be more easily visualized as opposed to radiance which would have a throughput of close to 0. Through this, we can see how the throughput will vary across the medium from thinner to more denser areas.
+
+  The results are given in appendix /*!TODO: Give the figures in the appendix*/
+]
+
+#p(2)[
+  The results for throughput only paint a different picture. For larger hashgrids, though not perfect, the overall shape and some of the more finer details of the smoke can be seen. For the smaller `n_levels` network, some of the areas that had much lower throughput, particularly above the area of the fire itself, had a similar shape with low throughput. In the larger networks, there is an explicit outline of the smoke that matches the original at least for the original/principle view and though there is a lot of noise elsewhere, this can be explained via the RGB bias given in `RGB_bias.typst` leading to empty space being learnt to have low throughput for red areas as well. Despite this noise, there is still clear areas that match the shape.
+
+  However, when considering novel views, the network does poorly. This may likely be due to the fact that the training dataset may have had more bias towards directions in the original directions or rays hitting empty space or the bounding volume sphere and thus failed to learn other perspectives. This offers discussion for improvement on the training method employed in this project to be more uniform and have more orientations to train. /*!TODO: expand more on this area*/
+]
+
+
+
+#heading(depth: 2)[
+  #set text(size: 12pt)
+  Follow up study: Spectral-based Networks
+]
+
+#p(3)[
+  This begs the question, is there a fundamental issue with learning just RGB radiance values? An argument can be made that there is an issue as converting from the higher dimensionality of 4 spectrum values that PBRT samples to just 3 RGB values inherently loses some information. This is due to the conversion both accounting for sensor and RGB colorspace conversion, inherently making the network tied to whichever colorspace it was trained on, but also due to the fact that many wavelengths for green overlap with red and blue as it attempts to simulate how the cones in human eyes work, potentially giving a heavier bias towards green without taking into account particular sensor sensitivity.
+
+  Thus, a small experiment can be conducted to see the results of training only throughput using the 4 spectral throughput values instead of 3 RGB values. However, due to the nature of the network not guaranteeing the same 4 wavelengths sampled during volume scattering/medium interactions (explained earlier about why the project used RGB) this requires a modification. To conduct this ablation study, PBRT was changed to predictly sample the same 4 wavelengths of /*!TODO: Give wavelengths sampled here*/ in order to be deterministic about the wavelengths. Future work could be done to have the specific wavelengths logged and used as input to the network as well, but for now we will consider only the given 4 wavelengths. Unfortunately, without the foresight to also record the position of the camera in the random orientations for the original training dataset, this network was trained on the original position and 4 other random orientations different from the training set. So potentially not a 1-1 comparison but still gives a good way to evalute spectral network performance.
+
+  The configuration used is given in `chosen_config_spectral.json` which is similar to the larger configurations used earlier as those were the ones that gave the best reconstruction but also because this spectral network is not trained on radiance which is what larger models struggled with. The results are given below/in the appendix
+]
+
+#p(3)[
+  As you can see, for the original view it had an almost perfect reconstruction, matching even the smaller and more fine wisps of smoke that the original had.
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Reflection
 ]
 
 #bibliography("refs.bib", style: "ieee")
