@@ -834,6 +834,15 @@ $
 
 #heading(depth: 2)[
   #set text(size: 12pt)
+  Memory and Time Performance
+]
+
+#p(2)[
+  /*!TODO: Get results on the time it takes to complete as well as the amount of memory it takes*/
+]
+
+#heading(depth: 2)[
+  #set text(size: 12pt)
   Evaluating RGB-based Networks
 ]
 
@@ -856,7 +865,7 @@ $
 
 #heading(depth: 2)[
   #set text(size: 12pt)
-  Follow up study: Spectral-based Networks
+  Ablation study: Spectral-based Networks
 ]
 
 #p(3)[
@@ -868,12 +877,65 @@ $
 ]
 
 #p(3)[
-  As you can see, for the original view it had an almost perfect reconstruction, matching even the smaller and more fine wisps of smoke that the original had.
+  As you can see, for the original view it had an almost perfect reconstruction, matching even the smaller and finer wisps of smoke that the original had. Compared to the original, the more wispier parts also appear less grainy/noisy and does a better job at smoothly interpolating from higher to lower throughput compared to the native approach which is expected from a neural network as it tends to prefer a smoother interpolation/function to learn. Overall, for the original/principal view, it does a very good job at reconstruction.
+
+  However, looking at the novel orientations, it appears there are issues but not as bad as the RGB network version. The first novel view is pretty much a mess with only a very small number of pixels having the correct throughput and mostly looks like noise, so for this view it didn't quite learn enough about the volume. However the second novel view did a lot better. Though there were quite a few areas which had a throughput of 1, not matching the original, the overall shape matched and had the same distinct outline of the smoke. This could have been a limitation of the size or variety of the training set but this second view shows potential.
 ]
 
 #heading(depth: 1)[
   #set text(size: 12pt)
-  Reflection
+  Reflection and Discussion of Future Work
 ]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Critical Reflection
+]
+
+
+#p(2)[
+  Looking back at the results we can break down how successful the this project has been across the 3 /*!TODO: Get a better name for it*/ metrics proposed in Section 1.3
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Visual Quality
+]
+
+#p(3)[
+  In terms of visual quality there has been partial success. Firstly, radiance inference for the RGB networks was poor. It failed to show any meaningful yellow/orange flame and this issue was caused by a number of factors from RGB bias from spectral conversion as well as limitations in integration and the impact of the volume scattering skip. When looking at the slice visualizations however, there is evidence to suggest that it did learn the shape of the fire and emissive sections of the scene but this could not showcased sufficiently in the inference. When considering throughput, the larger networks, though not perfect, did a better at learning the general shape of the smoke and the finer details, whereas smaller networks learned which areas generally had lower throughput but failed to learn the higher frequency areas like the smaller offshoots and wisps of smoke near the edges. If done again, there needs to be a bigger consideration of exactly how to deal with volume scattering being skipped as it is clear the networks have learnt a scene representation of radiance and throughput but was failed to be actualized during path tracing. In terms of learning novel views, it did similarly poorly. This was likely due to the training set itself not being varied enough or having too few orientations around the scene. Part of it was also explained in `validation_error_explanation.typst` where a lot of rays just hit the outer sphere instead of the smoke. Similarly to how Monte Carlo estimation tries to match samples with areas of higher importance, the training set would require samples of areas of higher importance.
+
+  For spectral networks, it was more successful. It was able to get a high quality reconstruction of the original view and in some ways performed better with less grainy and better blended wisps on the edges. On novel views there were some which were poor but others which it did well in reconstructing likely only let down by the training data. Therefore, overall this ablation study was successful in showcasing the performance of spectral networks.
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Computation Time
+]
+
+#heading(depth: 3)[
+  #set text(size: 10pt)
+  Memory Usage
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Future Work
+]
+
+#p(2)[
+  Due to the deficiencies that resulted from performing the RGB conversion from the spectral path tracer, future work should focus on training on spectral data and particuarly looking at utilizing spectral networks for the radiance as it looks like it may be able to perform well to predict radiance as well as the weighted throughput ablation study seems to do well. Furthermore, more work should be done to look at a better strategy for integration, specifically about how to consider compensating for the loss of the medium scattering kernel/call or even about how to potentially incorporate that into the network as well which may require a different approach to take into account the non-deterministic nature of Monte Carlo estimation. This may be in the form of another Fully Fused MLP that runs along side or after the MLP that operates on calculating medium interaction. The medium interaction network can then be modified to output positions and event scattering data that is fed into the scattering network to predict the radiance/throughput for those scattered positions/events. In this way, the medium interaction network is more closely aligned with what the original kernel does which is predict scattering events whereas the scattering network actually calculates the effects of those scattering events. This allows for the learned radiance to accurately and correctly be applied in the tracing that could not have occurred with the proposed network in this project. However this would require signficant modification to Instant-NGP in order to train an architecture like this. Another thing that may be useful to consider is adding additional inputs for the specific wavelengths sampled, to account for the fact that native spectral path tracing operates on sampled wavelengths that may not be consistent between pixel samples.
+]
+
+#heading(depth: 2)[
+  #set text(size: 11pt)
+  Conclusion
+]
+
+#p(2)[
+  Overall, the project has had its up and downs but was partially successful in achieving the project objectives. The project was able to successfully build a hybrid pipeline, train a neural network, complete a neural network integration, though rudimentary and with many areas to improve upon, and able to evaluate the performance across 3 metrics. The viability of neural networks in spectral path tracing has also been shown to have some promise. There have points raised which would improve this work, particularly on the integration, and there is promise that pursuing spectral networks, increasing their complexity or becoming more specialized may result in better renderings and should be investigated in future work.
+]
+
+
 
 #bibliography("refs.bib", style: "ieee")

@@ -1,20 +1,129 @@
-//Show rules
-#set page(margin: (left: 1cm, right: 1cm, top: 1cm, bottom: 1cm))
-#set page(numbering: "1 of 1", number-align: right)
-#set text(font: "Libre Baskerville")
-#show heading.where(level: 2): it => pad(left: 0.5em, it)
-#show heading.where(level: 3): it => pad(left: 1em, it)
-#show heading.where(level: 4): it => pad(left: 1.5em, it)
-#show heading.where(level: 1): it => pad(left: 0em, it)
-
-// Custom bindings
-#let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
-#let vb(val) = math.bold(math.upright(val))
+#import "common.typ": *
 
 #align(center)[
   #text(1.25em)[*Cyan background notes*]
 ]
-
+//TODO: Verify this is the case specifically for tAfter or if it occurs for non tAfter because right now it seems like its just tAfter
 #heading(depth: 1)[
   #set text(size: 12pt)
+  Cyan background in Throughput Visualization
+]
+
+#p(2)[
+  In a couple of the visualization slices for some of the models, in particular /*!TODO: Write a better name for this*/`good_12_19_1-38_tAfter_linear` images for throughput, it appears as though there is a lot of cyan where empty space should have been. This is the case fo all of the RGB based networks. Below is an example:
+
+
+  #image-grid(
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_7_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_8_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_9_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_10_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_11_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_12_T.png",
+    columns: 3,
+  )
+]
+
+#p(2)[
+  This appears strange, empty space should be black acoording to the visualization transformation of having $r, g, b$ values be `1.f - r` etc so black would mean transmittance of `1`. However, here the cyan indicates that the model thinks empty space has $T_r = 1$ and $T_g = T_b = 0$ or in other words transparent to red light but opaque to blue and green. However, this is not necessarily a failure of the network but a consequence of the sensor used in `explosion.pbrt`, the way that PBRT operates with spectral values and converts to RGB via `ToOutputRGB` and finally the issue of rare/no empty space training data
+
+  First lets tackle the training data. When I have a look at the training data, ideally empty space would be areas in which all components, $r,g,b >= 1$ as empty space should be completely transmissive/have full throughput. However, when having a look at the data and plotting red vs green and red vs blue scatter plots as well as filtering for samples with $>1$ throughput, this is what is found
+
+  #image-grid(
+    "./rvg_rvb_scatter.png",
+    "./no_empty_space_samples.png",
+    columns: 2,
+  )
+
+  Furthermore, in the training data visualization in `fyp.typst`, you can see there are very few samples where it samples inside the actual spherical volume or at least very few on the spherical boundary surrounding the smoke, and so very few samples would have learnt more transmissive volume data.
+
+  As you can see from above, there are no samples where red is empty and you can see that blue varies wildly when $T_r >1$. What this indicates is that what the network learned is that empty space appears to be when red > 1 (leading to opacity 0) and green is slightly below 1 and blue varies wildly. This causes green and blue throughputs to be predicted to be slightly less than 1 and thus causes non-zero opacity in empty space.
+
+  Next, lets have a look at how `ToOutputRGB` does its conversion.
+
+  #figure(
+    [
+      ```cpp
+
+      PBRT_CPU_GPU
+      RGB ToSensorRGB(SampledSpectrum L, const SampledWavelengths &lambda) const {
+          L = SafeDiv(L, lambda.PDF());
+          return imagingRatio * RGB((r_bar.Sample(lambda) * L).Average(),
+                                    (g_bar.Sample(lambda) * L).Average(),
+                                    (b_bar.Sample(lambda) * L).Average());
+      }
+
+      PBRT_CPU_GPU
+      RGB ToOutputRGB(SampledSpectrum L, const SampledWavelengths &lambda) const {
+          RGB cameraRGB = sensor->ToSensorRGB(L, lambda);
+          return outputRGBFromSensorRGB * cameraRGB;
+      }
+
+      ```
+    ],
+    caption: [Spectral MIS sampling],
+  )<spectral_MIS>
+
+
+  PBRT operates on 4 discrete sampled wavelengths which may vary depending on the specific wavelengths that were decided to be sampled pure run, which could be decided via importance sampling (using wavelengths that would have the highest contribution/highest importance for rendering) and is not guaranteed to be the same for each sample. In a test scene with a yellowish/redish emissive volume, the integrator chose to sample wavelengths that favoured longer/redder wavelengths. Thus in the final step when converting in the `ToOutputRGB`, it also takes into account the physical camera's sensor and attempts to mimic its sensitivity and function, in this case it was the `Nikon d850`.
+
+  The conversion performs a dot product between sampled wavelengths and sensor's response curve. The sensor is highly sensitive to the longer wavelengths in the red waveband #link("https://www.researchgate.net/figure/Spectral-Sensitivity-of-Nikon-D-850-Wavelength-Range-360-750-nm-Spectral-Resolution-10_fig3_378996415", "(link to graph)") and so it would likely be biased towards sampling 600nm which would have the most scattering as opposed to blue or green wavelengths.
+
+  Thus, when the `ToOutputRGB` function tries to reconstruct the Green and Blue channels from 4 exclusively red wavelength samples, the multiplication by the sensor's low sensitivty curve forces the cause green and blue to be poorly reconstructed/be less than 1. Therefore, training data would have recorded the potentially many empty space samples as having low blue and green transmittance and this algorithmic bias lead to the cyan background we see in the slices
+
+  Furthermore, the actual `sigma_s` in the file is `[200 10 900 10]` and so you can see that there is a very high orange bias (900) and blue bias (200) but green is relatively low (10).
+  To illustrate this point better here are 3 potential scenarios that could occur when importance sampling:
+  ```
+  Path 1 (importance samples red wavelengths):
+  λ = [580nm, 600nm, 620nm, 640nm]
+  T_spectral = [high, high, high, high]
+  ToRGB with Nikon D850 sensor:
+    R: Good reconstruction (has 600nm data) → 1.0 ✓
+    G: Extrapolates from neighbors → 0.95
+    B: Extrapolates from neighbors → 0.3
+  → T_rgb = (1.0, 0.95, 0.3)
+
+  Path 2 (importance samples different wavelengths):
+  λ = [420nm, 550nm, 600nm, 650nm]
+  T_spectral = [high, high, high, high]
+  ToRGB:
+    R: Good → 0.98
+    G: Has 550nm data! → 1.0
+    B: Has 420nm data! → 0.9
+  → T_rgb = (0.98, 1.0, 0.9)
+
+  Path 3 (very narrow red wavelength sampling):
+  λ = [590nm, 605nm, 615nm, 625nm]
+  T_spectral = [high, high, high, high]
+  ToRGB:
+    R: Good → 1.0
+    G: Bad extrapolation → 0.93
+    B: Bad extrapolation → 0.2
+  → T_rgb = (1.0, 0.93, 0.2)
+  ```
+
+  As can be seen above, due to the importance sampling, we have narrow green range since it is rarely sampled
+
+  To conclude the main 2 issues arise from:
+
+  #list(
+    [*Training Data coverage*: #text(size: 9.5pt)[PBRT terminates sampling outside spherical bounding volume/doesn't sample the empty space in between, resulting in 0 training samples where all RGB channels have $>= 1$ throughput so never actually observes empty space]],
+    [*Spectral variance*: #text(size: 9.5pt)[Importance Sampling concentrates wavelengths around peak scattering (orangish/reddish wavelengths of 600nm) leading to inconsistent RGB reconstruction due to potentially different sampled wavelengths]],
+  )
+
+  These two issues combined
+
+  Therefore moving forward, when we want to view just the throughput/transmittance, we will only consider the red wavelengths as those are the ones which are not subject to this issue of importance sampling as much as the blue and green wavelengths.
+
+  When adjusting for just the red throughput, the throughput slices now look like the following:
+  #image-grid(
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_7_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_8_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_9_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_10_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_11_T.png",
+    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_12_T.png",
+  )
+
+  which looks much better for visualization.
 ]

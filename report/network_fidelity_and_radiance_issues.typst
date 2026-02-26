@@ -60,6 +60,6 @@
 ]
 
 #p(1)[
-  From the previous experiments, its clear that the network can't be too small/dumb but can't be too complex to just learn the empty space, we need to strike a healthy balance between them. I found that this was around `n_levels=8` or `n_levels=12`.
+  From the previous experiments, its clear that the network can't be too small/dumb but can't be too complex to just learn the empty space, we need to strike a healthy balance between them. I found that this was around `n_levels=8` or `n_levels=12`. However, this is to ensure that it can learn both radiance and throughput. If we want to consider only getting high fidelity results for just throughput or radiance, a larger network is better in this regard.
 ]
 

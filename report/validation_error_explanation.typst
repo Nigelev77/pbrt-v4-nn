@@ -1,3 +1,70 @@
 #import "common.typ": *
 
 
+#align(center)[
+  #text(1.25em)[*Explaining Low Validation Error for smaller networks*]
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Overview of the Validation Results
+]
+
+#p(1)[
+  When looking at the validation results, we can see that there is a clear pattern of smaller hashgrid networks getting better validation results.
+  #image-grid(
+    "../imgs/nlevels_validation.png",
+    "../imgs/mapsizes_validation.png",
+    "../imgs/baseres_validation.png",
+    columns: 2,
+  )
+
+  For example, in the graphs above, the `n_levels=4` graph in particular has the highest validation PSNR compared to something like `n_levels=20` and the overall trend is that fewer `n_levesl` is better for generalization. In particular, the highest `n_levels=20` gave a final PSNR of less than 27 dB as opposed to `n_levels=4` which gave about >28.0 db. This clearly indicates that smaller networks would generalize the volume better. However, this result is misleading and requires a more direct look at what the validation set actually contained and visualizing it closer.
+]
+
+#heading(depth: 1)[
+  Visualizing the Validation Set
+]
+
+#p(1)[
+  #image-grid(
+    "../images/validation_ray_pos_visualizer_2.png",
+    "../images/validation_ray_pos_visualizer.png",
+    columns: 2,
+  )
+]
+
+#p(1)[
+  Above is a 3D scatter plot of 50,000 random samples of the validation set sample positions from 2 different camera views. As can be seen, there is a heavy bias towards this "bounding sphere" around the actual smoke volume. What this sphere represents in the `.pbrt` file is the medium interface between regular empty space and the special smoke medium that is specified via a `fire.nanovdb` file. Here is the actual file content:
+
+  #figure(
+    [
+      ```pbrt
+      AttributeBegin
+      Scale 1 1 1.6
+      Rotate 90 1 0 0
+      MakeNamedMedium "kaboom" "string type" "nanovdb"
+        "string filename" "fire.nvdb"
+        "spectrum sigma_s" [200 10 900 10] "spectrum sigma_a" [200 10 900 10]
+        "float Lescale" 5  "float temperaturecutoff" 1 "float temperaturescale" 100
+      AttributeEnd
+
+      AttributeBegin
+      MediumInterface "kaboom" ""
+      Material "interface"
+      Translate 0 40 0
+      Shape "sphere" "float radius" 80
+      AttributeEnd
+      ```
+    ],
+    caption: [Spectral MIS sampling],
+  )<explosion_pbrt_file>
+]
+
+#p(1)[
+  As you can see in @explosion_pbrt_file in the second Attribute section in contains a `MediumInterface` for "kaboom" which is the explosion medium name and "" which indicates empty space and this is of a shape "sphere" of radius 80. This is exactly what that "spherical shape" is shown in the scatter plot. This means the majority of the validation set is just this "empty space". This explains why the smaller networks achieved a higher validation PSNR as opposed to the larger hashgrid networks.
+
+  Due to the majority of the samples being empty space, the smaller networks, which had a much smaller capacity, could not learn the higher frequency differences in the volume and so would return values equal to or close to empty space and thus appeared to achieve a much higher validation PSNR and appeared to predict those samples better than the much larger networks which could predict the throughput better for the volume but did not learn as much of the empty space during training and thus would attempt to return throughput that is not close to empty space and received a much higher validation loss. This is further influenced by the tAfter changes and clamping that was studied/explored in `tAfter_linear_scaling.typst` which could have further biased towards simpler models
+
+  This skews the validation testing towards favoring simpler networks and so there is some obvious bias in the results. The results themselves are not useless though, since it still gives a good idea about how the validation error varies for the larger networks and can be seen that though it does drop off, there are some plateuing, particularly for evident in the `n_levels` graph meaning higher `n_levels` is not as detrimental/won't have as adverse of an effect on generalization.
+]
