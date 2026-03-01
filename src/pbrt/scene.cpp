@@ -172,7 +172,16 @@ namespace pbrt
         //NOTE: Could use graphicsState.ctm?
         Transform originalCameraFromWorld = camera.cameraTransform.CameraFromWorld(graphicsState.transformStartTime);
         Transform originalWorldFromCamera = Inverse(originalCameraFromWorld);
-        RNG rng(std::time(nullptr));
+
+        RNG rng;
+        if(Options->useRandomOrientations)
+        {
+            rng = RNG(std::time(nullptr));
+        }
+        else
+        {
+            rng = RNG(0);
+        }
         if (renderOrientationCnt > 1)
         {
             cameras.reserve(renderOrientationCnt);

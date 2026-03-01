@@ -378,10 +378,7 @@ namespace pbrt
             TransmissionOnly(wavefrontDepth);
             return;
         }
-        else
-        {
-            LOG_VERBOSE("Im here");
-        }
+
         RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
 
         float* d_inputs = inferInputs;
@@ -447,7 +444,7 @@ namespace pbrt
                 Vector3f dir = Normalize(w.ray.d);
                 Float tMax = w.tMax;
 
-                constexpr float MAX_SCENE_DIST = 160.f;
+                constexpr float MAX_SCENE_DIST = 50.f;
                 float tMaxClamped = std::min(float(tMax), MAX_SCENE_DIST);
 
                 d_inputs[slot * N_IN + 0] = float(pos.x) * posScale + posOffset.x;
@@ -500,13 +497,13 @@ namespace pbrt
             // auto outputRayData = this->outputRayData;
 
             Film film = this->film;
+            constexpr int N_OUT = 6;
 
             // ******************************************
             // Step 4: Read network outputs and use to calculate new Le and beta values   
             // ******************************************
             ParallelFor(
                 "Unpack NGP medium outputs", nItems, PBRT_CPU_GPU_LAMBDA(int slot) {
-                    constexpr int N_OUT = 6;
 
                     int pixelIndex = d_pixelIndices[slot];
                     SampledSpectrum betaBefore = d_betaBefore[slot];
@@ -529,50 +526,79 @@ namespace pbrt
                     const RGBFilm *rgbFilm = film.CastOrNullptr<RGBFilm>();
                     const RGBColorSpace *cs = rgbFilm ? rgbFilm->colorSpace : nullptr;
 
+                    // RGB Le_rgb(Lr_actual, Lg_actual, Lb_actual);
+                    // RGB T_rgb(T_r, T_g, T_b);
+
+                    // T_rgb *= tAfterScale;
+
+                    // SampledSpectrum L_added(0.f);
+                    // SampledSpectrum betaAfter = betaBefore;  // no attenutation by default
+                    // SampledSpectrum ruAfter = ruBefore;
+                    // SampledSpectrum rlAfter = rlBefore;
+                    // bool hasEmission = false;
+                    // if(cs)
+                    // {
+                    //     RGBIlluminantSpectrum Le_spec(*cs, ClampZero(Le_rgb));
+                    //     RGBUnboundedSpectrum T_spec(*cs, T_rgb); //NOTE: Should we Clamp 0,1 here?
+                    //     bool hasEmission = false;
+                    //     for (int i = 0; i < NSpectrumSamples; ++i) {
+                    //         Float T_i = T_spec(lambda[i]);
+                    //         L_added[i] = Le_spec(lambda[i]) * betaBefore[i];
+                           
+                    //         betaAfter[i] = T_i * betaBefore[i];
+                    //         ruAfter[i] = T_i * ruBefore[i];
+                    //         rlAfter[i] = T_i * rlBefore[i];
+                            
+                    //     }
+                    // }
+
+
                     RGB Le_rgb(Lr_actual, Lg_actual, Lb_actual);
-                    RGB T_rgb(T_r, T_g, T_b);
-
+                    RGB T_rgb(T_r, T_r, T_r);
                     T_rgb *= tAfterScale;
-
+                    
                     SampledSpectrum L_added(0.f);
                     SampledSpectrum betaAfter = betaBefore;  // no attenutation by default
                     SampledSpectrum ruAfter = ruBefore;
                     SampledSpectrum rlAfter = rlBefore;
-                    
                     if(cs)
                     {
                         RGBIlluminantSpectrum Le_spec(*cs, ClampZero(Le_rgb));
                         RGBUnboundedSpectrum T_spec(*cs, T_rgb); //NOTE: Should we Clamp 0,1 here?
+                        
 
-                        for(int i = 0; i < NSpectrumSamples; ++i)
-                        {
+                        for (int i = 0; i < NSpectrumSamples; ++i) {
                             Float T_i = T_spec(lambda[i]);
                             L_added[i] = Le_spec(lambda[i]) * betaBefore[i];
                             betaAfter[i] = T_i * betaBefore[i];
-                            ruAfter[i] = T_i * ruBefore[i];
-                            rlAfter[i] = T_i * rlBefore[i];
-                            if(L_added[i] > 1e-2f)
-                            {
-                                L_added[i] *= 10.f;
-                                betaAfter[i] = 1e-3f;
-                                ruAfter[i] = 1e-3f;
-                                rlAfter[i] = 1e-3f;
-                            }
-                            // else {
-                                // betaAfter[i] = 0.f;
-                                // ruAfter[i] = 0.f;
-                                // rlAfter[i] = 0.f;
-                            // }
+                            ruAfter[i] = ruAfter[i];
+                            rlAfter[i] = rlAfter[i];
                         }
                     }
+
                     // Store attenuated beta for dispatch loop
                     d_betaAfter[slot] = betaAfter;
                     d_ruAfter[slot] = ruAfter;
                     d_rlAfter[slot] = rlAfter;
 
-                    SampledSpectrum Lp = pixelSampleState.L[pixelIndex];
-                    pixelSampleState.L[pixelIndex] = L_added;
+                    // // if(hasEmission)
+                    // // {
+                    // //     printf("Transmission is %f %f %f %f\n", L_added[0], L_added[1],
+                    // //            L_added[2], L_added[3]);
+                    // // }
+
+                    pixelSampleState.L[pixelIndex] += L_added;
+
+
+                    
                 });
+
+            #ifdef PBRT_BUILD_GPU_RENDERER
+                if(Options->useGPU)
+                {
+                    GPUWait();
+                }
+            #endif
 
             // ******************************************
             // Step 5: Enqueue work items based on ray values/MediumSampleWorkItem values   
@@ -584,13 +610,29 @@ namespace pbrt
 
                     if(slot < 0 || slot >= maxBatchSize)
                         return;
-
+                        
+                    int pixelIndex = d_pixelIndices[slot];
                     SampledSpectrum beta = d_betaAfter[slot];
                     SampledSpectrum r_u = d_ruAfter[slot];
                     SampledSpectrum r_l = d_rlAfter[slot];
 
+                    float L_r = d_outputs[slot * N_OUT + 0];
+                    float L_g = d_outputs[slot * N_OUT + 1];
+                    float L_b = d_outputs[slot * N_OUT + 2];
+                    RGB Le_rgb(L_r, L_g, L_b);
+
                     if(!beta)
-                        return;
+                    {
+                        if(Le_rgb[0] > 0.f || Le_rgb[1] > 0.f || Le_rgb[2] > 0.f || Le_rgb[3] > 0.f)
+                        {
+                            beta = SampledSpectrum(1.f);
+                        }
+                        else
+                        {
+                            return;
+                        }
+                    }
+
 
                     if (w.depth >= maxDepth)
                         return;
@@ -723,7 +765,12 @@ namespace pbrt
             SampledSpectrum r_l = w.r_l;
             SampledSpectrum L(0.f);
             RNG rng(Hash(ray.o, tMax), Hash(ray.d));
-
+            printf("Lambdas %f %f %f %f\n", lambda[0], lambda[1], lambda[2], lambda[3]);
+            LOG_VERBOSE("Medium sample beta %f %f %f %f r_u %f %f %f %f r_l %f %f "
+                "%f %f\n",
+                beta[0], beta[1], beta[2], beta[3], r_u[0], r_u[1],
+                r_u[2], r_u[3], r_l[0], r_l[1], r_l[2],
+                r_l[3]);
             PBRT_DBG("Lambdas %f %f %f %f\n", lambda[0], lambda[1], lambda[2], lambda[3]);
             PBRT_DBG("Medium sample beta %f %f %f %f r_u %f %f %f %f r_l %f %f "
                 "%f %f\n",
