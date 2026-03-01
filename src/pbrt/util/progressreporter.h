@@ -33,6 +33,13 @@ class Timer {
         return elapseduS / 1000000.;
     }
 
+    double ElapsedMicroTime() const {
+        clock::time_point now = clock::now();
+        int64_t elapseduS =
+            std::chrono::duration_cast<std::chrono::microseconds>(now - start).count();
+        return elapseduS;
+    }
+
     std::string ToString() const;
 
   private:

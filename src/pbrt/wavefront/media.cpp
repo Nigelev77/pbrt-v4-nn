@@ -28,6 +28,11 @@ namespace pbrt
 
     void WavefrontPathIntegrator::TransmissionOnly(int wavefrontDepth)
     {
+        if(Options->timeMediumSample)
+        {
+            GPUWait();
+        }
+        Timer interactionTimer;
         RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
 
         float* d_inputs = inferInputs;
@@ -360,6 +365,12 @@ namespace pbrt
                     material.Dispatch(enqueue);
                 });
                 
+        
+        if(Options->timeMediumSample)
+        {
+            timeElapsed += interactionTimer.ElapsedMicroTime();
+        }
+
         if (wavefrontDepth == maxDepth)
             return;
 
@@ -378,7 +389,12 @@ namespace pbrt
             TransmissionOnly(wavefrontDepth);
             return;
         }
-
+        
+        if(Options->timeMediumSample)
+        {
+            GPUWait();
+        }
+        Timer interactionTimer;
         RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
 
         float* d_inputs = inferInputs;
@@ -720,18 +736,22 @@ namespace pbrt
                     material.Dispatch(enqueue);
                 });
                 
+        #ifdef PBRT_BUILD_GPU_RENDERER
+            if(Options->useGPU)
+            {
+                GPUWait();
+            }
+            if(Options->timeMediumSample)
+            {
+                timeElapsed += interactionTimer.ElapsedMicroTime();
+            }
+        #endif
         if (wavefrontDepth == maxDepth)
             return;
 
         ForEachType(SampleMediumScatteringCallback{ wavefrontDepth, this },
             PhaseFunction::Types());
 
-        #ifdef PBRT_BUILD_GPU_RENDERER
-            if(Options->useGPU)
-            {
-                GPUWait();
-            }
-        #endif
     }
 
     // WavefrontPathIntegrator Participating Media Methods
@@ -740,8 +760,12 @@ namespace pbrt
         if (!haveMedia)
             return;
 
-        RayQueue* nextRayQueue = NextRayQueue(wavefrontDepth);
-
+        if(Options->timeMediumSample)
+        {
+            GPUWait();
+        }
+        Timer interactionTimer;
+        RayQueue *nextRayQueue = NextRayQueue(wavefrontDepth);
 
         auto pendingRayData = this->pendingRayData;
         auto pendingSamplesCnt = this->pendingSamplesCnt;
@@ -765,7 +789,7 @@ namespace pbrt
             SampledSpectrum r_l = w.r_l;
             SampledSpectrum L(0.f);
             RNG rng(Hash(ray.o, tMax), Hash(ray.d));
-            printf("Lambdas %f %f %f %f\n", lambda[0], lambda[1], lambda[2], lambda[3]);
+            // printf("Lambdas %f %f %f %f\n", lambda[0], lambda[1], lambda[2], lambda[3]);
             LOG_VERBOSE("Medium sample beta %f %f %f %f r_u %f %f %f %f r_l %f %f "
                 "%f %f\n",
                 beta[0], beta[1], beta[2], beta[3], r_u[0], r_u[1],
@@ -1058,8 +1082,15 @@ namespace pbrt
                 material.Dispatch(enqueue);
         });
 
+        if(Options->timeMediumSample)
+        {
+            GPUWait();
+            timeElapsed += interactionTimer.ElapsedMicroTime();
+        }
+
         if (wavefrontDepth == maxDepth)
             return;
+
 
         ForEachType(SampleMediumScatteringCallback{ wavefrontDepth, this },
             PhaseFunction::Types());

@@ -222,7 +222,9 @@ int main(int argc, char* argv[])
             ParseArg(&iter, args.end(), "number-of-orientations", &options.numberOfOrientations, onError) ||
             ParseArg(&iter, args.end(), "useNGP", &options.useNGP, onError) ||
             ParseArg(&iter, args.end(), "modelPath", &options.modelPath, onError) || 
+            ParseArg(&iter, args.end(), "timingsPath", &options.timingsPath, onError) || 
             ParseArg(&iter, args.end(), "useSpectralModel", &options.useSpectralModel, onError) ||
+            ParseArg(&iter, args.end(), "timeMediumInteraction", &options.timeMediumSample, onError) ||
             ParseArg(&iter, args.end(), "useRandomOrientations", &options.useRandomOrientations, onError)
         )
         {

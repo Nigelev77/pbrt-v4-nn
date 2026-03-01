@@ -386,6 +386,8 @@ namespace pbrt
         maxInferenceBatchSize = maxQueueSize;
         int paddedMaxBatch = (int)tcnn::next_multiple(
             (uint64_t)maxInferenceBatchSize, (uint64_t)tcnn::BATCH_SIZE_GRANULARITY);
+        printf("Max inference batch size is: %d with padded max batch: %d\n",
+               maxInferenceBatchSize, paddedMaxBatch);
         const uint target_size = Options->useSpectralModel ? 4 : 6;
 
 #ifdef PBRT_BUILD_GPU_RENDERER

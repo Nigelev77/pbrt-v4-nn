@@ -63,8 +63,10 @@ struct PBRTOptionsNN : PBRTOptions
     int numberOfOrientations = 1;
     bool useRandomOrientations = true;
     std::string modelPath = "/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack";
+    std::string timingsPath = "/workspace/pbrt-v4-nn/timings.txt";
     bool useNGP = true;
     bool useSpectralModel = true;
+    bool timeMediumSample = false;
     std::string ToString() const;
 };
 
