@@ -254,7 +254,7 @@
 ]
 
 #p(2)[
-  From the results shown above, I decided its best to pursue linear scaling (dividing by max=1.6) for the final model/for inference rather than clamping, preserving the full distribution and also preserving the overestimates/compensation caused by the spectral MIS in PBRT. This is required to ensure an unbiased estimator in the final output image. This does require adding a new member variable `m_volume_training_tAfter_scale` to ensure the model can rescale for inference.
+  From the results shown above, I decided its best to pursue linear scaling for the final model/for inference rather than clamping, preserving the full distribution and also preserving the overestimates/compensation caused by the spectral MIS in PBRT. This is required to ensure an unbiased estimator in the final output image. This does require adding a new member variable `m_volume_training_tAfter_scale` to ensure the model can rescale for inference.
 ]
 
 #heading(depth: 2)[

@@ -8,8 +8,38 @@
 // Custom bindings
 #let p(depth, body) = block(inset: (left: 0.5em * (depth - 1)), text(size: 9.5pt, body))
 #let vb(val) = math.bold(math.upright(val))
-#let image-grid(..paths, columns: 3) = grid(
+#let image-grid(..paths, columns: 3, height: auto) = grid(
   columns: (1fr,) * columns,
   gutter: 1em,
-  ..paths.pos().map(path => image(path, width: 100%))
+  ..paths.pos().map(path => image(path, width: 100%, height: height))
 )
+#let image-figure(..images, columns: 3, caption: none, gap: 0.8em) = {
+  // Each positional arg is either a path string or a (path, caption) tuple.
+  let items = images
+    .pos()
+    .map(item => {
+      if type(item) == str {
+        (path: item, caption: none)
+      } else {
+        // Expect an array of (path, caption)
+        (path: item.at(0), caption: item.at(1, default: none))
+      }
+    })
+  figure(
+    grid(
+      columns: (1fr,) * columns,
+      gutter: gap,
+      ..items.map(it => {
+        let img = image(it.path, width: 100%)
+        if it.caption != none {
+          stack(dir: ttb, spacing: 0.4em, img, align(center, text(size: 8pt, it.caption)))
+        } else {
+          img
+        }
+      })
+    ),
+    caption: caption,
+  )
+}
+
+
