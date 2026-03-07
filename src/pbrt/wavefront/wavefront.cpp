@@ -17,7 +17,22 @@ namespace pbrt
     {
         Float seconds = integrator->Render();
 
+
         LOG_VERBOSE("Total rendering time: %.3f s", seconds);
+
+        if(Options->timeMediumSample)
+        {
+            double microSecondsElapsed = integrator->timeElapsed;
+            LOG_VERBOSE("Total SampleMediumInteraction time is %f", microSecondsElapsed);
+            printf("Total SampleMediumInteraction time is %f\n", microSecondsElapsed);
+
+            std::ofstream ofs(Options->timingsPath, std::ios::app);
+            if (ofs.is_open()) {
+                std::string label = !Options->useNGP ? "Native Path" : Options->modelPath;
+                ofs << label << ": " << (uint64_t)microSecondsElapsed << "\n";
+                ofs.close();
+            }
+        }
 
         if (Options->printStatistics)
         {

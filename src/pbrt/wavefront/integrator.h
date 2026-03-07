@@ -295,6 +295,8 @@ namespace pbrt
         SampledWavelengths* inferLambda = nullptr;
         int *inferSlotMap = nullptr;
         int *inferItemCount = nullptr;
+
+        double timeElapsed = 0.f;
     };
 
 }  // namespace pbrt

@@ -6432,13 +6432,13 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
 				
 				if (isTransmittance) {
 					if (useOldTransmittance) {
-						float r_op = 1.f - (raw_r);
-						float g_op = 1.f - (raw_g);
-						float b_op = 1.f - (raw_b);
+						float r_op = 1.f - (std::max(0.f, std::min(1.f, raw_r)));
+						float g_op = 1.f - (std::max(0.f, std::min(1.f, raw_g)));
+						float b_op = 1.f - (std::max(0.f, std::min(1.f, raw_b)));
 						
-						img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, r_op)) * 255.f;
-						img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op)) * 255.f;
-						img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, b_op)) * 255.f;
+						img_rgb[i * 3 + 0] = std::max(0.f, std::min(1.f, r_op));
+						img_rgb[i * 3 + 1] = std::max(0.f, std::min(1.f, g_op));
+						img_rgb[i * 3 + 2] = std::max(0.f, std::min(1.f, b_op));
 					} else {
 						float r_op = 1.f - (raw_r * m_volume_training_inputs_tAfter_scale);
 						float g_op = 1.f - (raw_g * m_volume_training_inputs_tAfter_scale);

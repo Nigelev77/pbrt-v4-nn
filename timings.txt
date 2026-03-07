@@ -1,0 +1,57 @@
+Native Path: 922176
+Native Path: 1964357
+Native Path: 3275889
+Native Path: 893965
+Native Path: 1930882
+Native Path: 3238770
+Native Path: 885021
+Native Path: 1906341
+Native Path: 3220747
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 329488
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 658274
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 1079924
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 283578
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 650091
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 1064469
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 314258
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 635406
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 1046286
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 315778
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 654503
+/workspace/pbrt-v4-nn/good_12_19_1-38_tAfter_linear.msgpack: 1082449
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 283579
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 653595
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 1073612
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 306098
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 626432
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 1038831
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 272093
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 616572
+/workspace/pbrt-v4-nn/good_12_19_1-38_third.msgpack: 1063510
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 407358
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 784336
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 1251848
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 433305
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 863858
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 1400310
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 403179
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 777351
+/workspace/pbrt-v4-nn/even_even_larger.msgpack: 1253894
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 565553
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 938439
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 1395514
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 399177
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 734882
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 1195262
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 539466
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 959979
+/workspace/pbrt-v4-nn/even_even_larger_color.msgpack: 1502443
+/workspace/pbrt-v4-nn/spectral.msgpack: 342912
+/workspace/pbrt-v4-nn/spectral.msgpack: 631820
+/workspace/pbrt-v4-nn/spectral.msgpack: 1079348
+/workspace/pbrt-v4-nn/spectral.msgpack: 353581
+/workspace/pbrt-v4-nn/spectral.msgpack: 653043
+/workspace/pbrt-v4-nn/spectral.msgpack: 1006854
+/workspace/pbrt-v4-nn/spectral.msgpack: 326558
+/workspace/pbrt-v4-nn/spectral.msgpack: 737795
+/workspace/pbrt-v4-nn/spectral.msgpack: 1187165
