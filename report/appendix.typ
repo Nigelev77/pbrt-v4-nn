@@ -75,9 +75,9 @@
 #neurons128-layers3-color
 
 #let neurons128-layers3-T = image-figure(
-  ("../images/even_even_larger_T_view1.png", [View 1]),
-  ("../images/even_even_larger_T_view2.png", [View 2]),
-  ("../images/even_even_larger_T_view3.png", [View 3]),
+  ("../images/test_larger_view1.png", [View 1]),
+  ("../images/test_larger_view2.png", [View 2]),
+  ("../images/test_larger_view3.png", [View 3]),
   columns: 3,
   caption: [Inference for 128 neurons 3 layers T only on 3 determined novel views],
 )
@@ -99,13 +99,69 @@
   "../images/timings_graph.png",
   columns: 1,
   caption: "Graph displaying average time for 3 determined novel views across 3 runs. ",
+  height: 15%,
 )
+
+
+#let all-views-figure = figure(
+  stack(
+    dir: ttb,
+    spacing: 0.8em,
+    image-figure(
+      ("../images/GT_view1.png", [GT View 1]),
+      ("../images/GT_view2.png", [GT View 2]),
+      ("../images/GT_view3.png", [GT View 3]),
+      ("../images/spectral_view1.png", [Spectral View 1]),
+      ("../images/spectral_view2.png", [Spectral View 2]),
+      ("../images/spectral_view3.png", [Spectral View 3]),
+      ("../images/even_even_larger_color_view1.png", [Large Color View 1]),
+      ("../images/even_even_larger_color_view2.png", [Large Color View 2]),
+      ("../images/even_even_larger_color_view3.png", [Large Color View 3]),
+      columns: 9,
+    ),
+    // Use a custom grid just for the 6 items, with 1.5fr padding on both sides to perfectly center it underneath the 9 columns above
+    grid(
+      columns: (1.5fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1fr, 1.5fr),
+      gutter: 0.8em,
+      [],
+      // Empty block acting as spacer
+      stack(dir: ttb, spacing: 0.4em, image("../images/test_larger_view1.png", width: 100%), align(center, text(
+        size: 8pt,
+        [Large T View 1],
+      ))),
+      stack(dir: ttb, spacing: 0.4em, image("../images/test_larger_view2.png", width: 100%), align(center, text(
+        size: 8pt,
+        [Large T View 2],
+      ))),
+      stack(dir: ttb, spacing: 0.4em, image("../images/test_larger_view3.png", width: 100%), align(center, text(
+        size: 8pt,
+        [Large T View 3],
+      ))),
+      stack(dir: ttb, spacing: 0.4em, image("../images/good_12_19_1-38_tAfter_linear_T_view1.png", width: 100%), align(
+        center,
+        text(size: 8pt, [Medium View 1]),
+      )),
+      stack(dir: ttb, spacing: 0.4em, image("../images/good_12_19_1-38_tAfter_linear_T_view2.png", width: 100%), align(
+        center,
+        text(size: 8pt, [Medium View 2]),
+      )),
+      stack(dir: ttb, spacing: 0.4em, image("../images/good_12_19_1-38_tAfter_linear_T_view3.png", width: 100%), align(
+        center,
+        text(size: 8pt, [Medium View 3]),
+      )),
+      [],
+      // Empty block acting as spacer
+    ),
+  ),
+)
+
+#all-views-figure
 
 #timings-graph
 
 #let memory-table = figure(
   {
-    set text(size: 9.5pt)
+    set text(size: 8pt)
     table(
       columns: (auto, auto, auto, auto, auto, auto),
       align: horizon,
@@ -180,3 +236,34 @@
 )
 
 #memory-table
+
+
+
+#let flame_visualizations = image-figure(
+  "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_7.png",
+  "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_8.png",
+  "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_9.png",
+  "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_10.png",
+  "../images/testing_images/original_failed_2_13_64_2_without_padding/flame_11.png",
+  // "../images/testing_images/chosen_8_13_64_2_clamping_purple_msgpack/flame_7.png",
+  // "../images/testing_images/chosen_8_13_64_2_clamping_purple_msgpack/flame_8.png",
+  // "../images/testing_images/chosen_8_13_64_2_clamping_purple_msgpack/flame_9.png",
+  // "../images/testing_images/chosen_8_13_64_2_clamping_purple_msgpack/flame_10.png",
+  // "../images/testing_images/chosen_8_13_64_2_clamping_purple_msgpack/flame_11.png",
+  "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_7.png",
+  "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_8.png",
+  "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_9.png",
+  "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_10.png",
+  "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_11.png",
+  "../images/radiance_imgs/large_color_6.png",
+  "../images/radiance_imgs/large_color_7.png",
+  "../images/radiance_imgs/large_color_8.png",
+  "../images/radiance_imgs/large_color_10.png",
+  "../images/radiance_imgs/large_color_11.png",
+  columns: 5,
+  height: 2cm,
+  caption: [Images for the the z-slice visualizations. Rows in order is: `validation_config`, `Medium`, `Large`],
+)
+
+
+#flame_visualizations
