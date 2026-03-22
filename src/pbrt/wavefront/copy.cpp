@@ -11,9 +11,12 @@
 #endif
 namespace pbrt
 {
-    constexpr uint64_t kMaxBytes = 20 * 1024ull * 1024ull * 1024ull;
+    constexpr uint64_t kMaxBytes = 24 * 1024ull * 1024ull * 1024ull;
     constexpr uint64_t kBinaryTrainingSampleSize = 76;
-    constexpr uint64_t kMaxSamples = kMaxBytes / kBinaryTrainingSampleSize;
+    constexpr uint64_t kBinaryTrainingSampleSizeSpectral = 44;
+    constexpr uint64_t kMaxSamplesRGB = kMaxBytes / kBinaryTrainingSampleSize;
+    constexpr uint64_t kMaxSamplesSpectral =
+        kMaxBytes / kBinaryTrainingSampleSizeSpectral;
     constexpr bool optimized_output = false;
     constexpr bool use_volume_training_data = true;
 
@@ -41,11 +44,12 @@ namespace pbrt
             }
 
             bool skipWrite = false;
-                
+            const uint64_t maxSamples = kMaxSamplesSpectral;
+
             // Check if we've already written enough samples
-            if (rayLogSampleCnt >= kMaxSamples) {
+            if (rayLogSampleCnt >= maxSamples) {
                 LOG_VERBOSE("Sample count %llu >= max %llu, skipping write\n", 
-                            rayLogSampleCnt, kMaxSamples);
+                            rayLogSampleCnt, maxSamples);
                 continue;
             }
 

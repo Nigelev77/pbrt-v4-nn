@@ -632,7 +632,7 @@ int main(int argc, char** argv)
     {
         std::string path = get(generate_slice_path_flag);
         testbed.m_train = false;
-        for(int i = 6; i < 12; ++i)
+        for(int i = 0; i < 20; ++i)
         {
             std::string filename;
             if(T_slice_flag)
@@ -643,8 +643,8 @@ int main(int argc, char** argv)
             {
                 filename = fmt::format("{}_{}.png", path.c_str(), i);
             }
-            bool output_pos = i >= 9 && i <= 11;
-            testbed.dump_slice_img(filename, (float)(i+4) * (0.5f/20.f), T_slice_flag, use_old_transmittance_flag, output_pos);
+            bool output_pos = false;
+            testbed.dump_slice_img(filename, (float)(i) * (0.5f/20.f), T_slice_flag, use_old_transmittance_flag, output_pos);
         }
         return 0;
     }

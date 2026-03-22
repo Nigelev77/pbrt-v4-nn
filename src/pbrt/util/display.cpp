@@ -191,14 +191,31 @@ bool IPCChannel::Send(pstd::span<const uint8_t> message) {
     int *startPtr = (int *)message.data();
     *startPtr = message.size();
 
-    int bytesSent =
-        send(socketFd, (const char *)message.data(), message.size(), 0 /* flags */);
-    if (bytesSent == message.size())
-        return true;
+    const char *ptr = (const char *)message.data();
+    size_t remaining = message.size();
 
-    LOG_ERROR("send to display server failed: %s", ErrorString());
-    Disconnect();
-    return false;
+    while (remaining > 0) {
+        // Loop to handle partial sends (common over SSH tunnels)
+        auto bytesSent = send(socketFd, ptr, remaining, 0 /* flags */);
+        
+        if (bytesSent == SOCKET_ERROR) {
+#ifdef PBRT_IS_WINDOWS
+            int err = WSAGetLastError();
+#else
+            int err = errno;
+            // Retry if interrupted by system signal
+            if (err == EINTR) continue;
+#endif
+            LOG_ERROR("send to display server failed: %s", ErrorString(err));
+            Disconnect();
+            return false;
+        }
+
+        ptr += bytesSent;
+        remaining -= bytesSent;
+    }
+
+    return true;
 }
 
 namespace {

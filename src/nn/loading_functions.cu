@@ -1020,13 +1020,15 @@ void load_dataset_to_testbed_spectral(Testbed& testbed, const fs::path& path, Da
     for(uint64_t i = 0; i < sampleCount; ++i)
     {
         auto index = i * N_VOLUME_INPUT_DIMS;
-        auto target_index = i * N_VOLUME_TARGET_DIMS;
+        auto target_index = i * N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY;
 
         for(int dim = 0; dim < 3; ++dim)
         {
             const float val = input_cpu_buffer[index + POS_OFFSET + dim];
             input_cpu_buffer[index + POS_OFFSET + dim] = val * scale + offset[dim];
         }
+
+
 
         const float tMax_val = input_cpu_buffer[index + TMAX_OFFSET];
         input_cpu_buffer[index + TMAX_OFFSET] = (tMax_val - tMax_offset) * tMax_scale;
@@ -1038,10 +1040,10 @@ void load_dataset_to_testbed_spectral(Testbed& testbed, const fs::path& path, Da
         }
     }
 
-
     if((testbed.m_stream_training_data_from_CPU || testbed.m_stream_test_data_from_CPU) && (dataset_type == DatasetType::Training || dataset_type == DatasetType::Test))
     {
-        const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS * sizeof(float);
+        const auto input_bytes_to_copy =
+            (*n_samples_ptr) * N_VOLUME_INPUT_DIMS * sizeof(float);
         const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY * sizeof(float);
 
         size_t free_mem, total_mem;
@@ -1074,7 +1076,7 @@ void load_dataset_to_testbed_spectral(Testbed& testbed, const fs::path& path, Da
         }
     } else {
         const auto input_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_INPUT_DIMS;
-        const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS;
+        const auto target_bytes_to_copy = (*n_samples_ptr) * N_VOLUME_TARGET_DIMS_SPECTRAL_TRANSMISSION_ONLY;
         
         auto &input_gpu_buffer = *input_gpu_ptr;
         auto &target_gpu_buffer = *target_gpu_ptr;

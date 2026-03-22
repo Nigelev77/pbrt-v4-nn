@@ -165,7 +165,7 @@ namespace pbrt
             AnimatedTransform(worldFromCamera[0], graphicsState.transformStartTime,
                 worldFromCamera[1], graphicsState.transformEndTime));
         renderFromWorld = cameraTransform.RenderFromWorld();
-        Point3f sphereCentreCamera = Point3f(0.f, 0.f, 5.f);
+        Point3f sphereCentreCamera = Point3f(1.f, 1.f, -1.f);
         Float radius = Distance(camera.pos, sphereCentreCamera);
         using pbrt::Transform;
         Transform originalLookAt = pbrt::LookAt(camera.pos, camera.look, camera.up);

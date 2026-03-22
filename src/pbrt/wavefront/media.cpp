@@ -69,6 +69,19 @@ namespace pbrt
             }
         );
 
+        // Enqueue medium scattering work.
+        // auto enqueue = [=](auto ptr)
+        //     {
+        //         using PhaseFunction = typename std::remove_const_t<
+        //             std::remove_reference_t<decltype(*ptr)>>;
+        //         mediumScatterQueue->Push(MediumScatterWorkItem<PhaseFunction>{
+        //             p, w.depth, lambda, beta, r_u, ptr, -ray.d, ray.time,
+        //                 w.etaScale, ray.medium, w.pixelIndex});
+        //     };
+        // DCHECK_RARE(1e-6f, !beta);
+        // if (beta && r_u)
+        //     mp.phase.Dispatch(enqueue);
+
         auto pixelSampleState = this->pixelSampleState;
 
         // ******************************************
@@ -78,6 +91,12 @@ namespace pbrt
         ForAllQueued(
             "Pack medium samples for NGP", mediumSampleQueue, maxQueueSize,
             PBRT_CPU_GPU_LAMBDA(MediumSampleWorkItem w) {
+
+                // if(w.mediumInterface.IsMediumTransition())
+                // {
+                //     return;
+                // }
+
 #ifdef PBRT_IS_GPU_CODE
                 int slot = atomicAdd(d_itemCount, 1);
 #else
@@ -235,6 +254,8 @@ namespace pbrt
                         ruAfter[i] = T_i * ruBefore[i]; // To get smoky effect need to use T_i or just pass thru ruAfter
                         rlAfter[i] = T_i * rlBefore[i]; // To get smoky effect need to use T_i or just pass thru rlAfter
                     }
+
+                    
                     
                     // if(slot < 5)
                     // {
@@ -637,17 +658,17 @@ namespace pbrt
                     float L_b = d_outputs[slot * N_OUT + 2];
                     RGB Le_rgb(L_r, L_g, L_b);
 
-                    if(!beta)
-                    {
-                        if(Le_rgb[0] > 0.f || Le_rgb[1] > 0.f || Le_rgb[2] > 0.f || Le_rgb[3] > 0.f)
-                        {
-                            beta = SampledSpectrum(1.f);
-                        }
-                        else
-                        {
-                            return;
-                        }
-                    }
+                    // if(!beta)
+                    // {
+                    //     if(Le_rgb[0] > 0.f || Le_rgb[1] > 0.f || Le_rgb[2] > 0.f || Le_rgb[3] > 0.f)
+                    //     {
+                    //         beta = SampledSpectrum(1.f);
+                    //     }
+                    //     else
+                    //     {
+                    //         return;
+                    //     }
+                    // }
 
 
                     if (w.depth >= maxDepth)
@@ -871,17 +892,17 @@ namespace pbrt
                         r_u *= T_maj * mp.sigma_s / pr;
 
                         // Enqueue medium scattering work.
-                        // auto enqueue = [=](auto ptr)
-                        //     {
-                        //         using PhaseFunction = typename std::remove_const_t<
-                        //             std::remove_reference_t<decltype(*ptr)>>;
-                        //         mediumScatterQueue->Push(MediumScatterWorkItem<PhaseFunction>{
-                        //             p, w.depth, lambda, beta, r_u, ptr, -ray.d, ray.time,
-                        //                 w.etaScale, ray.medium, w.pixelIndex});
-                        //     };
-                        // DCHECK_RARE(1e-6f, !beta);
-                        // if (beta && r_u)
-                        //     mp.phase.Dispatch(enqueue);
+                        auto enqueue = [=](auto ptr)
+                            {
+                                using PhaseFunction = typename std::remove_const_t<
+                                    std::remove_reference_t<decltype(*ptr)>>;
+                                mediumScatterQueue->Push(MediumScatterWorkItem<PhaseFunction>{
+                                    p, w.depth, lambda, beta, r_u, ptr, -ray.d, ray.time,
+                                        w.etaScale, ray.medium, w.pixelIndex});
+                            };
+                        DCHECK_RARE(1e-6f, !beta);
+                        if (beta && r_u)
+                            mp.phase.Dispatch(enqueue);
 
                         scattered = true;
 
@@ -908,12 +929,12 @@ namespace pbrt
                         return beta && r_u;
                     }
                 });
-            // if (!scattered && beta)
-            // {
-            //     beta *= T_maj / T_maj[0];
-            //     r_u *= T_maj / T_maj[0];
-            //     r_l *= T_maj / T_maj[0];
-            // }
+            if (!scattered && beta)
+            {
+                beta *= T_maj / T_maj[0];
+                r_u *= T_maj / T_maj[0];
+                r_l *= T_maj / T_maj[0];
+            }
 
 
             PBRT_DBG("Post ray medium sample L %f %f %f %f beta %f %f %f %f\n", L[0],
@@ -926,7 +947,7 @@ namespace pbrt
             if (L)
             {
                 SampledSpectrum Lp = pixelSampleState.L[w.pixelIndex];
-                // pixelSampleState.L[w.pixelIndex] = Lp + L;
+                pixelSampleState.L[w.pixelIndex] = Lp + L;
                 outputRayData.L[w.pixelIndex] = Lp + L;
                 outputRayData.lambda[w.pixelIndex] = w.lambda;
                 PBRT_DBG("Added emitted radiance %f %f %f %f at pixel index %d\n", L[0],
@@ -940,11 +961,11 @@ namespace pbrt
             SampledSpectrum T_target = (beta_before == SampledSpectrum(0.f)) ? SampledSpectrum(0.f) : (beta / beta_before);
 
             Float uLog = rng.Uniform<Float>();
-            constexpr Float logProbability = 0.9f;
+            constexpr Float logProbability = 0.2f;
             int shouldLog = SampleDiscrete({logProbability, 1.f - logProbability}, uLog);
 
-
             // TODO: add a field to convert to RGB as well
+            
             if (rgbColorSpace && shouldLog == 0) {
                 // RGB beta_rgb = beta.ToRGB(w.lambda, *rgbColorSpace);
                 // RGB beta_before_rgb = beta_before.ToRGB(w.lambda, *rgbColorSpace);

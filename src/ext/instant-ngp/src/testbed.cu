@@ -6468,7 +6468,7 @@ void Testbed::dump_slice_img(const fs::path& path, float slice_z, bool isTransmi
                         m_volume_training_inputs_scale;
 						v = (v - m_volume_training_inputs_offset.y) /
                         m_volume_training_inputs_scale;
-						tlog::info() << "Radiance non-zero at [ " << u << ", " << v << " ]";
+						// tlog::info() << "Radiance non-zero at [ " << u << ", " << v << " ]";
 					}
 					
 					r = std::max(0.f, std::exp(log_r) - 1.f);
