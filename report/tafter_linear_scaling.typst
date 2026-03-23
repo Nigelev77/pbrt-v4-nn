@@ -114,10 +114,10 @@
 #p(2)[
   To compare with the results shown in test error MSE and PSNR metrics, using linear scaling actually provided an increase of approximately 3 dB in PSNR and a decrease of approximately 0.02 in MSE. Here are graphs showcasing the clamped and linear scaling metrics:
 
-  #image-grid(
-    "../images/graphs/good_12_19_1-38_shared_testerror.png",
-    "../images/graphs/good_8_13_64_2_shared_testerror.png",
-    "../images/graphs/ok_8_19_purple_shared_testerror.png",
+  #image-figure(
+    ("../images/graphs/good_12_19_1-38_shared_testerror.png", [medium configuration]),
+    ("../images/graphs/good_8_13_64_2_shared_testerror.png", [green configuration]),
+    ("../images/graphs/ok_8_19_purple_shared_testerror.png", [magenta configuration]),
   )
 ]
 
@@ -130,121 +130,154 @@
 #p(2)[
   To compare with the slices from Visualization this is some of the results:
 
-  #image-grid(
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_8.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_9.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_10.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_11.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_12.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_13.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_14.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_15.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_16.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_17.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_18.png",
-    "../images/radiance_imgs/good_12_19_1-38_tAfter_linear_19.png",
+  // #image-grid(
+  //   "../images/radiance_imgs/medium_8.png",
+  //   "../images/radiance_imgs/medium_9.png",
+  //   "../images/radiance_imgs/medium_10.png",
+  //   "../images/radiance_imgs/medium_11.png",
+  //   "../images/radiance_imgs/medium_12.png",
+  //   "../images/radiance_imgs/medium_13.png",
+  //   "../images/radiance_imgs/medium_14.png",
+  //   "../images/radiance_imgs/medium_15.png",
+  //   "../images/radiance_imgs/medium_16.png",
+  //   "../images/radiance_imgs/medium_17.png",
+  //   "../images/radiance_imgs/medium_18.png",
+  //   "../images/radiance_imgs/medium_19.png",
+  //   columns: 6,
+  // )
+
+  // #image-grid(
+  //   "../images/radiance_imgs/green_8.png",
+  //   "../images/radiance_imgs/green_9.png",
+  //   "../images/radiance_imgs/green_10.png",
+  //   "../images/radiance_imgs/green_11.png",
+  //   "../images/radiance_imgs/green_12.png",
+  //   "../images/radiance_imgs/green_13.png",
+  //   "../images/radiance_imgs/green_14.png",
+  //   "../images/radiance_imgs/green_15.png",
+  //   "../images/radiance_imgs/green_16.png",
+  //   "../images/radiance_imgs/green_17.png",
+  //   "../images/radiance_imgs/green_18.png",
+  //   "../images/radiance_imgs/green_19.png",
+  //   columns: 6,
+  // )
+
+
+  // #image-grid(
+  //   "../images/radiance_imgs/magenta_8.png",
+  //   "../images/radiance_imgs/magenta_9.png",
+  //   "../images/radiance_imgs/magenta_10.png",
+  //   "../images/radiance_imgs/magenta_11.png",
+  //   "../images/radiance_imgs/magenta_12.png",
+  //   "../images/radiance_imgs/magenta_13.png",
+  //   "../images/radiance_imgs/magenta_14.png",
+  //   "../images/radiance_imgs/magenta_15.png",
+  //   "../images/radiance_imgs/magenta_16.png",
+  //   "../images/radiance_imgs/magenta_17.png",
+  //   "../images/radiance_imgs/magenta_18.png",
+  //   "../images/radiance_imgs/magenta_19.png",
+  //   columns: 6,
+  // )
+
+
+  // #image-grid(
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_8_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_9_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_10_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_11_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_12_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_13_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_14_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_15_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_16_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_17_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_18_T.png",
+  //   "../images/transmittance_imgs/good_12_19_1-38_third_19_T.png",
+  //   columns: 6,
+  // )
+  // TODO: Get some slices for large and spectral configs
+
+  #image-figure(
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_7_T.png", [medium_non_scaled 7]),
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_8_T.png", [medium_non_scaled 8]),
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_9_T.png", [medium_non_scaled 9]),
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_10_T.png", [medium_non_scaled 10]),
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_11_T.png", [medium_non_scaled 11]),
+    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_12_T.png", [medium_non_scaled 12]),
     columns: 6,
   )
 
-  #image-grid(
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_8.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_9.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_10.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_11.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_12.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_13.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_14.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_15.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_16.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_17.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_18.png",
-    "../images/radiance_imgs/good_8_13_64_2_tAfter_linear_19.png",
+  #image-figure(
+    ("../images/transmittance_imgs/medium_red_7_T.png", [medium_scaled 7]),
+    ("../images/transmittance_imgs/medium_red_8_T.png", [medium_scaled 8]),
+    ("../images/transmittance_imgs/medium_red_9_T.png", [medium_scaled 9]),
+    ("../images/transmittance_imgs/medium_red_10_T.png", [medium_scaled 10]),
+    ("../images/transmittance_imgs/medium_red_11_T.png", [medium_scaled 11]),
+    ("../images/transmittance_imgs/medium_red_12_T.png", [medium_scaled 12]),
+    columns: 6,
+  )
+
+  #image-figure(
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_7_T.png", [magenta_clamped_7]),
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_8_T.png", [magenta_clamped_8]),
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_9_T.png", [magenta_clamped_9]),
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_10_T.png", [magenta_clamped_10]),
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_11_T.png", [magenta_clamped_11]),
+    ("../images/transmittance_imgs/ok_8_19_purple/slice_12_T.png", [magenta_clamped_12]),
+    columns: 6,
+  )
+
+  #image-figure(
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_7_T.png", [magenta_scaled 7]),
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_8_T.png", [magenta_scaled 8]),
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_9_T.png", [magenta_scaled 9]),
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_10_T.png", [magenta_scaled 10]),
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_11_T.png", [magenta_scaled 11]),
+    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_12_T.png", [magenta_scaled 12]),
     columns: 6,
   )
 
 
-  #image-grid(
-    "../images/radiance_imgs/ok_8_19_purple_8.png",
-    "../images/radiance_imgs/ok_8_19_purple_9.png",
-    "../images/radiance_imgs/ok_8_19_purple_10.png",
-    "../images/radiance_imgs/ok_8_19_purple_11.png",
-    "../images/radiance_imgs/ok_8_19_purple_12.png",
-    "../images/radiance_imgs/ok_8_19_purple_13.png",
-    "../images/radiance_imgs/ok_8_19_purple_14.png",
-    "../images/radiance_imgs/ok_8_19_purple_15.png",
-    "../images/radiance_imgs/ok_8_19_purple_16.png",
-    "../images/radiance_imgs/ok_8_19_purple_17.png",
-    "../images/radiance_imgs/ok_8_19_purple_18.png",
-    "../images/radiance_imgs/ok_8_19_purple_19.png",
-    columns: 6,
-  )
 
-  #image-grid(
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_8_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_9_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_10_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_11_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_12_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_13_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_14_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_15_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_16_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_17_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_18_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_19_T.png",
-    columns: 6,
-  )
-
-  #image-grid(
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_8_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_9_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_10_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_11_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_12_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_13_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_14_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_15_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_16_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_17_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_18_T.png",
-    "../images/transmittance_imgs/good_8_13_64_2_tAfter_linear_19_T.png",
-    columns: 6,
-  )
+  // #image-grid(
+  //   "../images/transmittance_imgs/green_8_T.png",
+  //   "../images/transmittance_imgs/green_9_T.png",
+  //   "../images/transmittance_imgs/green_10_T.png",
+  //   "../images/transmittance_imgs/green_11_T.png",
+  //   "../images/transmittance_imgs/green_12_T.png",
+  //   "../images/transmittance_imgs/green_13_T.png",
+  //   "../images/transmittance_imgs/green_14_T.png",
+  //   "../images/transmittance_imgs/green_15_T.png",
+  //   "../images/transmittance_imgs/green_16_T.png",
+  //   "../images/transmittance_imgs/green_17_T.png",
+  //   "../images/transmittance_imgs/green_18_T.png",
+  //   "../images/transmittance_imgs/green_19_T.png",
+  //   columns: 6,
+  // )
 
 
-  #image-grid(
-    "../images/transmittance_imgs/ok_8_19_purple_8_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_9_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_10_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_11_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_12_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_13_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_14_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_15_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_16_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_17_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_18_T.png",
-    "../images/transmittance_imgs/ok_8_19_purple_19_T.png",
-    columns: 6,
-  )
+  // #image-grid(
+  //   "../images/transmittance_imgs/magenta_8_T.png",
+  //   "../images/transmittance_imgs/magenta_9_T.png",
+  //   "../images/transmittance_imgs/magenta_10_T.png",
+  //   "../images/transmittance_imgs/magenta_11_T.png",
+  //   "../images/transmittance_imgs/magenta_12_T.png",
+  //   "../images/transmittance_imgs/magenta_13_T.png",
+  //   "../images/transmittance_imgs/magenta_14_T.png",
+  //   "../images/transmittance_imgs/magenta_15_T.png",
+  //   "../images/transmittance_imgs/magenta_16_T.png",
+  //   "../images/transmittance_imgs/magenta_17_T.png",
+  //   "../images/transmittance_imgs/magenta_18_T.png",
+  //   "../images/transmittance_imgs/magenta_19_T.png",
+  //   columns: 6,
+  // )
 
 
 ]
 
 
 #p(2)[
-  They look very similar but the key thing it learned is that blue does not have a transmittance of 0/opacity of 1 in empty space, but instead it correctly learns where it would be transmitted and where it would not
-
-  The results don't seem to effect radiance values at all and they remain largely similar to the ones for the clamped values. This makes sense, only the transmittance/weighted throughput ratio was affected so radiance should remain unaffected
-]
-
-
-#heading(depth: 1)[
-  Evaluation
-]
-
-#p(1)[
-  Overall, although the radiance remains unaffected, due to the increase in PSNR as well as the improvement of
+  Though there are slight training differences (since it required retraining with the linear scaling), they still look very similar but the key thing it learned is that it doesn't have just 0/1 opacity but has a much smoother gradient/smoother change in transmittance to get smoother transitions
 ]
 
 

@@ -43,15 +43,88 @@
 ]
 
 #p(1)[
-  Following the above, since lower `n_levels` couldn't represent the scene's radiance, what about the higher ones? Well this lead to a different issue, one that isn't just a increasing validation test error (from the graph above)
+  Following the above, since lower `n_levels` couldn't represent the scene's radiance consistently, what about the higher ones? Well this lead to a different issue, one that isn't just a increasing validation test error (from the graph above)
 
   /*!TODO: Get some slices of large hashgrid network*/
 
+  #image-figure(
+    ("../images/radiance_imgs/large_no_radiance_5.png", [`large_no_radiance_5`]),
+    ("../images/radiance_imgs/large_no_radiance_6.png", [`large_no_radiance_6`]),
+    ("../images/radiance_imgs/large_no_radiance_7.png", [`large_no_radiance_7`]),
+    ("../images/radiance_imgs/large_no_radiance_8.png", [`large_no_radiance_8`]),
+    ("../images/radiance_imgs/large_no_radiance_9.png", [`large_no_radiance_9`]),
+    ("../images/radiance_imgs/large_no_radiance_10.png", [`large_no_radiance_10`]),
+    columns: 6,
+  )
+
+
   From the images above, you can see they are almost all black/empty, meaning that it predicted little to no radiance coming from the slices.
 
-  The likely explanation is that with a much larger grid and higher growth factor of $1.5$, the finest grid resolution became massive, with loads of different voxels.
+  The likely explanation is that with a much larger grid and higher growth factor of $1.5$, the finest grid resolution became massive, with loads of different voxels.  Therefore, because the volume itself is relatively sparse, the fire itself took up a lot less space comparatively to the amount of empty space in the scene. So, because the grid was so fine there were many hash entries in the hashgrid that simply never got touched or updated to take a "fire" ray samples and the ones that did were drowned out by the empty space.
 
-  Therefore, because the volume itself is relatively sparse, the fire itself took up a lot less space comparatively to the amount of empty space in the scene. So, because the grid was so fine there were many hash entries in the hashgrid that simply never got touched or updated to take a "fire" ray samples and the ones that did were drowned out by the empty space. Thus, it likely lead to dead ReLU, /*!TODO: Put better explanation for Dead ReLU*/ and the optimizer could not escape it due to the gradients/weights and the gradients for fire too sparse to update, causing the network to converge to learning "all-black"
+  Another explanation is increasing the size of the decoder MLP and the usage of the custom ReLU activation for radiance. Because the majority of the samples had no radiance and so may have a negative gradient for the majority of the neurons concerning radiance. Thus, it likely lead to dead ReLU, where it predicted 0 radiance for some of the hash grid entries and thus due to the properties of ReLU where an output of 0 can get stuck at that value, causing the network to converge to learning "all-black"/no radiance.
+
+
+  However, black/no radiance did not always occur. Sometimes it would have the correct shape but would have red radiance instead, like below
+
+  #image-figure(
+    ("../images/radiance_imgs/large_color_6.png", [`large_6`]),
+    ("../images/radiance_imgs/large_color_7.png", [`large_7`]),
+    ("../images/radiance_imgs/large_color_8.png", [`large_8`]),
+    ("../images/radiance_imgs/large_color_9.png", [`large_9`]),
+    ("../images/radiance_imgs/large_color_10.png", [`large_10`]),
+    ("../images/radiance_imgs/large_color_11.png", [`large_11`]),
+    columns: 6,
+  )
+
+  The likely reason for this is similar to the no radiance, but instead since red radiance has a much higher affect on the L2 Loss, the optimizer may have put too much of a importance on the red and thus may have pushed weights responsible for just green/blue to be 0 and similarly experience dying ReLU like above. In fact, the visualized graph of a sample of rays helps to enforce this
+
+  #image(
+    "../images/training_visualized_graphs/Le.png",
+    width: 100%,
+  )
+
+  As can be seen above, there are generally more samples with nonzero red radiance, more samples in which the red radiance is a lot bigger than 1 as well. Due to this larger bias towards red, could have caused the network to overfit to learning just red.
+]
+
+#heading(depth: 1)[
+  #set text(size: 12pt)
+  Magenta Tangent
+]
+
+
+#p(1)[
+  This was not the only strange occurrence of a singular radiance value. When testing a configuration with 8 `n_levels` and `log2_hashmap_size` of 19 with 64 neurons and 2 hidden layers for the decoder network, this is what I got:
+
+  #image-figure(
+    ("../images/radiance_imgs/magenta_8.png", [`magenta_8`]),
+    ("../images/radiance_imgs/magenta_9.png", [`magenta_9`]),
+    ("../images/radiance_imgs/magenta_10.png", [`magenta_10`]),
+    ("../images/radiance_imgs/magenta_11.png", [`magenta_11`]),
+    columns: 4,
+  )
+
+
+
+  This looks quite strange as the above training visualized graph looks like red should dominate and blue the first one to be reduced to 0. In fact, when combined with smaller decoder networks it can sometimes even get green radiance like below
+  #image-figure(
+    ("../images/radiance_imgs/green_8.png", [`green_8`]),
+    ("../images/radiance_imgs/green_9.png", [`green_9`]),
+    ("../images/radiance_imgs/green_10.png", [`green_10`]),
+    ("../images/radiance_imgs/green_11.png", [`green_11`]),
+    columns: 4,
+  )
+
+
+  Here are some potential explanations for the above artifacts
+
+  #list(
+    [*Magenta*: At the levels used and for a `log_hashmap` of 19, its possible the spatial grid cells cover a much larger area of the scene. Since the explosion is locally very close and small (only in the center) and green radiance is only really shown in the center of the fire where it is brightest/hottest, it gets averaged across the few grid cells present. Since the histogram has a larger proportion of values of blue close to 0 it does not get as diluted/averaged. Thus, when training its possible that green gets averaged to 0 causing dead ReLU whereas red and blue survive ],
+    [*Green*: At even smaller hashgrids and decoder networks, the most fine grid cells at the highest hashmap levels may be too coarse, causing potentially contradictory values to be sampled since too many points map to the same grid cells. Since red has the highest frequency of non-zero radiance and also the highest radiance given, its possible that the L2 loss becomes so volatile that it overshoots and causes it to output 0. Since blue is so low, its possible that the network decided to cut that to by default always be 0 as well and then since green is more tightly bounded, it isn't affected too much and thus leaves an underfitted green blob due to both red and blue being subject to dead ReLU.],
+  )
+
+
+  Note, the above is just speculatory on what caused the strange artifacting of the radiance and may not be the true cause. A more thorough investigation is likely required to fully understand what caused this issue. It's likely it would be better to just split the transmittance and radiance prediction into 2 separate networks to better understand what caused this as it may have been impacted by the transmittance weight updates as well, but this is work for the future. At regular sizes, this isn't a massive problem.
 ]
 
 #heading(depth: 1)[
@@ -60,6 +133,10 @@
 ]
 
 #p(1)[
-  From the previous experiments, its clear that the network can't be too small/dumb but can't be too complex to just learn the empty space, we need to strike a healthy balance between them. I found that this was around `n_levels=8` or `n_levels=12`. However, this is to ensure that it can learn both radiance and throughput. If we want to consider only getting high fidelity results for just throughput or radiance, a larger network is better in this regard.
+  From the previous experiments, its clear that the network can't be too small/dumb but can't be too complex to just learn the empty space, we need to strike a healthy balance between them. I found that this was around `n_levels=8` or `n_levels=12`. However, this is to ensure that it can learn both radiance and throughput. If we want to consider only getting high fidelity results for just throughput or radiance, a larger network is better in this regard. This is why in the final evaluation, only larger networks were considered for evaluation as it only focused on transmittance and not radiance, where a slightly smaller network that would not be affected by radiance issues would be better.
 ]
 
+
+
+
+//!TODO: Add stuff about red radiance and magenta radiance

@@ -10,16 +10,16 @@
 ]
 
 #p(2)[
-  In a couple of the visualization slices for some of the models, in particular /*!TODO: Write a better name for this*/`good_12_19_1-38_tAfter_linear` images for throughput, it appears as though there is a lot of cyan where empty space should have been. This is the case fo all of the RGB based networks. Below is an example:
+  In a couple of the visualization slices for some of the models, in particular /*!TODO: Write a better name for this*/`medium_T` images for throughput, it appears as though there is a lot of cyan where empty space should have been. This is the case fo all of the RGB based networks. Below is an example:
 
 
   #image-grid(
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_7_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_8_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_9_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_10_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_11_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_12_T.png",
+    "../images/transmittance_imgs/medium_7_T.png",
+    "../images/transmittance_imgs/medium_8_T.png",
+    "../images/transmittance_imgs/medium_9_T.png",
+    "../images/transmittance_imgs/medium_10_T.png",
+    "../images/transmittance_imgs/medium_11_T.png",
+    "../images/transmittance_imgs/medium_12_T.png",
     columns: 3,
   )
 ]
@@ -117,12 +117,12 @@
 
   When adjusting for just the red throughput, the throughput slices now look like the following:
   #image-grid(
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_7_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_8_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_9_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_10_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_11_T.png",
-    "../images/transmittance_imgs/good_12_19_1-38_tAfter_linear_red_12_T.png",
+    "../images/transmittance_imgs/medium_red_7_T.png",
+    "../images/transmittance_imgs/medium_red_8_T.png",
+    "../images/transmittance_imgs/medium_red_9_T.png",
+    "../images/transmittance_imgs/medium_red_10_T.png",
+    "../images/transmittance_imgs/medium_red_11_T.png",
+    "../images/transmittance_imgs/medium_red_12_T.png",
   )
 
   which looks much better for visualization.
