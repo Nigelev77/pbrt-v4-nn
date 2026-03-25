@@ -442,3 +442,30 @@
 )
 
 #large_T_slices
+
+
+#let large_red_T_slices = image-figure(
+  ("../images/large_red_T_imgs/large_0_T.png", [large_red_0_T]),
+  ("../images/large_red_T_imgs/large_1_T.png", [large_red_1_T]),
+  ("../images/large_red_T_imgs/large_2_T.png", [large_red_2_T]),
+  ("../images/large_red_T_imgs/large_3_T.png", [large_red_3_T]),
+  ("../images/large_red_T_imgs/large_4_T.png", [large_red_4_T]),
+  ("../images/large_red_T_imgs/large_5_T.png", [large_red_5_T]),
+  ("../images/large_red_T_imgs/large_6_T.png", [large_red_6_T]),
+  ("../images/large_red_T_imgs/large_7_T.png", [large_red_7_T]),
+  ("../images/large_red_T_imgs/large_8_T.png", [large_red_8_T]),
+  ("../images/large_red_T_imgs/large_9_T.png", [large_red_9_T]),
+  ("../images/large_red_T_imgs/large_10_T.png", [large_red_10_T]),
+  ("../images/large_red_T_imgs/large_11_T.png", [large_red_11_T]),
+  ("../images/large_red_T_imgs/large_12_T.png", [large_red_12_T]),
+  ("../images/large_red_T_imgs/large_13_T.png", [large_red_13_T]),
+  ("../images/large_red_T_imgs/large_14_T.png", [large_red_14_T]),
+  ("../images/large_red_T_imgs/large_15_T.png", [large_red_15_T]),
+  ("../images/large_red_T_imgs/large_16_T.png", [large_red_16_T]),
+  ("../images/large_red_T_imgs/large_17_T.png", [large_red_17_T]),
+  ("../images/large_red_T_imgs/large_18_T.png", [large_red_18_T]),
+  ("../images/large_red_T_imgs/large_19_T.png", [large_red_19_T]),
+  columns: 5,
+)
+
+#large_red_T_slices

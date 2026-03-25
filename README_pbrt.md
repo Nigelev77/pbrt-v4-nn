@@ -1,14 +1,14 @@
-pbrt, Version 4 (Early Release)
-===============================
+# pbrt-v4-nn
 
+<!--
 [<img src="https://github.com/mmp/pbrt-v4/workflows/cpu-linux-build-and-test/badge.svg">](https://github.com/mmp/pbrt-v4/actions?query=workflow%3Acpu-linux-build-and-test)
 [<img src="https://github.com/mmp/pbrt-v4/workflows/cpu-macos-build-and-test/badge.svg">](https://github.com/mmp/pbrt-v4/actions?query=workflow%3Acpu-macos-build-and-test)
 [<img src="https://github.com/mmp/pbrt-v4/workflows/cpu-windows-build-and-test/badge.svg">](https://github.com/mmp/pbrt-v4/actions?query=workflow%3Acpu-windows-build-and-test)
-[<img src="https://github.com/mmp/pbrt-v4/workflows/gpu-build-only/badge.svg">](https://github.com/mmp/pbrt-v4/actions?query=workflow%3Agpu-build-only)
+[<img src="https://github.com/mmp/pbrt-v4/workflows/gpu-build-only/badge.svg">](https://github.com/mmp/pbrt-v4/actions?query=workflow%3Agpu-build-only) -->
 
-![Transparent Machines frame, via @beeple](images/teaser-transparent-machines.png)
+<!-- ![Transparent Machines frame, via @beeple](images/teaser-transparent-machines.png) -->
 
-This is an early release of pbrt-v4, the rendering system that will be
+<!-- This is an early release of pbrt-v4, the rendering system that will be
 described in the forthcoming fourth edition of *Physically Based Rendering:
 From Theory to Implementation*.  (The printed book will be available in
 mid-February 2023; a few chapters will be made available in late Fall of
@@ -226,5 +226,9 @@ to be "gbuffer" when rendering and using EXR for the image format causes
 pbrt to generate such a "deep" image.  In either case, using the denoiser
 is straightforward:
 ```bash
-$ imgtool denoise-optix noisy.exr --outfile denoised.exr
-```
+$ imgtool denoise-optix noisy.exr --outfile denoised.exr -->
+<!-- ``` -->
+
+pbrt-v4-nn is a final year project focusing on using Instant-NGP to replace the `SampleMediumInteraction` kernel in pbrt-v4.
+
+The `report` subdirectory contains all the notes, in `.typst` and `.pdf` files, about the overalll journey and some of the main difficulties and issues encountered along the way. Feel free to peruse those files for more detail about certain section of the final 10 page report in `fyp.pdf`.

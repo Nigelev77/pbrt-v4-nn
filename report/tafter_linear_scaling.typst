@@ -198,12 +198,12 @@
   // TODO: Get some slices for large and spectral configs
 
   #image-figure(
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_7_T.png", [medium_non_scaled 7]),
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_8_T.png", [medium_non_scaled 8]),
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_9_T.png", [medium_non_scaled 9]),
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_10_T.png", [medium_non_scaled 10]),
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_11_T.png", [medium_non_scaled 11]),
-    ("../images/transmittance_imgs/good_12_19_1-38_first/slice_12_T.png", [medium_non_scaled 12]),
+    ("../images/transmittance_imgs/medium_clamped/slice_7_T.png", [medium_non_scaled 7]),
+    ("../images/transmittance_imgs/medium_clamped/slice_8_T.png", [medium_non_scaled 8]),
+    ("../images/transmittance_imgs/medium_clamped/slice_9_T.png", [medium_non_scaled 9]),
+    ("../images/transmittance_imgs/medium_clamped/slice_10_T.png", [medium_non_scaled 10]),
+    ("../images/transmittance_imgs/medium_clamped/slice_11_T.png", [medium_non_scaled 11]),
+    ("../images/transmittance_imgs/medium_clamped/slice_12_T.png", [medium_non_scaled 12]),
     columns: 6,
   )
 
@@ -218,22 +218,22 @@
   )
 
   #image-figure(
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_7_T.png", [magenta_clamped_7]),
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_8_T.png", [magenta_clamped_8]),
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_9_T.png", [magenta_clamped_9]),
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_10_T.png", [magenta_clamped_10]),
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_11_T.png", [magenta_clamped_11]),
-    ("../images/transmittance_imgs/ok_8_19_purple/slice_12_T.png", [magenta_clamped_12]),
+    ("../images/transmittance_imgs/magenta_T/slice_7_T.png", [magenta_clamped_7]),
+    ("../images/transmittance_imgs/magenta_T/slice_8_T.png", [magenta_clamped_8]),
+    ("../images/transmittance_imgs/magenta_T/slice_9_T.png", [magenta_clamped_9]),
+    ("../images/transmittance_imgs/magenta_T/slice_10_T.png", [magenta_clamped_10]),
+    ("../images/transmittance_imgs/magenta_T/slice_11_T.png", [magenta_clamped_11]),
+    ("../images/transmittance_imgs/magenta_T/slice_12_T.png", [magenta_clamped_12]),
     columns: 6,
   )
 
   #image-figure(
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_7_T.png", [magenta_scaled 7]),
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_8_T.png", [magenta_scaled 8]),
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_9_T.png", [magenta_scaled 9]),
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_10_T.png", [magenta_scaled 10]),
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_11_T.png", [magenta_scaled 11]),
-    ("../images/transmittance_imgs/ok_8_19_purple_tAfter_linear_red_12_T.png", [magenta_scaled 12]),
+    ("../images/transmittance_imgs/magenta_red_7_T.png", [magenta_scaled 7]),
+    ("../images/transmittance_imgs/magenta_red_8_T.png", [magenta_scaled 8]),
+    ("../images/transmittance_imgs/magenta_red_9_T.png", [magenta_scaled 9]),
+    ("../images/transmittance_imgs/magenta_red_10_T.png", [magenta_scaled 10]),
+    ("../images/transmittance_imgs/magenta_red_11_T.png", [magenta_scaled 11]),
+    ("../images/transmittance_imgs/magenta_red_12_T.png", [magenta_scaled 12]),
     columns: 6,
   )
 

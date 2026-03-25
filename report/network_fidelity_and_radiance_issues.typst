@@ -32,7 +32,7 @@
 ]
 
 #p(1)[
-  The likely issue here is that the hashgrid is underfitting to my data. Since Instant-NGP represents space as a hierarchy of grids, the low `n_levels` means that the grid doesn't have a fine enough representation/doesn't have enough levels and is too coarse to fully represent sharper changes within the volume.
+  The likely issue here is that the hashgrid is underfitting to my data. Since Instant-NGP represents space as a hierarchy of grids, the low `n_levels` means that the grid doesn't have a fine enough representation/doesn't have enough levels and is too coarse to fully represent sharper changes within the volume. More of why the validation error was biased or preferred the smaller networks is explained in `validation_error_explanation.pdf`
 
   What this means is that there were not enough bins within the grid to learn the higher definition representation of the flame itself, leading to blurry and inconsistent blocks around the image (some due to the fact that multiple points likely mapped to the same coordinates and caused a hash collision)
 ]
