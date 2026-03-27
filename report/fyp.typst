@@ -35,7 +35,7 @@
 ]
 
 #p(3)[
-  Developing a graphics model to render 3D scenes to a 2D screen (or 3D virtual environment) in a realistic manner is an evolving field, with many pipelines and approximations being invented in order to solve what is known as *The Rendering Equation*, whilst trying to find a compromise between computation time and realism. Real-time applications typically prioritize computation time in order to present a target number of frames per second (FPS) and typically favours Rasterization which convert a scene's representation of vertices and converts those into screen space pixels. This achieves speed but at the cost of realism as they only approximate light. In order to get realism, this requires modelling more closely how light travels, which is the goal of Physically based path tracers.
+  Developing a graphics model to render 3D scenes to a 2D screen (or 3D virtual environment) in a realistic manner is an evolving field, with many pipelines and approximations being invented in order to solve what is known as *The Rendering Equation*, whilst trying to find a compromise between computation time and realism. Real-time applications typically prioritize computation time in order to present a target FPS and typically favours Rasterization which converts a scene's representation of vertices and triangles and converts those into screen space pixels. This achieves speed but at the cost of realism as they only approximate light. In order to achieve photorealism, this requires modelling how light travels, which is the goal of Physically Based Path Tracers.
 ]
 
 #heading(depth: 3)[
@@ -44,7 +44,7 @@
 ]
 
 #p(3)[
-  In the advent of Neural Networks, we have seen them being used in increasing number of fields, from Computer Vision to Language Modelling. Given enough clean data and sufficiently complex networks, they have been shown to be able to drastically improve both speed and efficiency of conventional classification and regression methods. This is no different for rendering, where neural network usage ranges from improving current pipelines, to scene reconstruction.
+  In the advent of Neural Networks, we have seen them being used in increasing number of fields, from Computer Vision to Language Modelling. Given enough clean data and sufficiently complex networks, they have been shown to be able to drastically improve both speed and efficiency of conventional feature engineering. This is no different for rendering, where neural network usage ranges from improving current pipelines, to scene reconstruction.
 ]
 
 #heading(depth: 2)[
@@ -53,7 +53,7 @@
 ]
 
 #p(2)[
-  Current solutions for rendering volumetric effects fall into two extremes. On the one hand, real-time applications perform ray marching approximations which compromise quality for speed. Offline physically based path tracers on the other hand provide photorealism at the cost of computation time from sampling hundreds of thousands of rays per pixel (and subpixel). At the same time, the field of Neural Rendering has introduced state of the art tools such as Neural Radiance fields (NeRFs) to render novel views of scenes, but these are often stand alone and require effort to integrate into a path tracer as well as the fact that many of these networks haven't been designed to approximate volumetric effects. This project attempts to bridge this gap and investigate the feasibility of whether a volumetric scattering GPU kernel can be replaced in a physically based path tracer with Neural Architecture.
+  Current solutions for rendering volumetric effects fall into two extremes. On the one hand, real-time applications perform ray marching approximations which compromise quality for speed. Offline physically based path tracers on the other hand provide photorealism at the cost of computation time from sampling hundreds of thousands of rays per pixel. At the same time, the field of Neural Rendering has introduced state of the art tools such as Neural Radiance fields (NeRFs) to render novel views of scenes, but these are often stand alone and require effort to integrate into a path tracer as well as the fact that many of these networks haven't been designed to approximate volumetric effects. This project attempts to bridge this gap and investigate the feasibility of whether a volumetric scattering GPU kernel can be replaced in a physically based path tracer with Neural Architecture.
 ]
 
 #heading(depth: 2)[
@@ -62,7 +62,7 @@
 ]<Project_Objectives>
 
 #p(2)[
-  Though there are many implementations for Path Tracers, almost all rely on sampling rays and estimation in order to calculate The Rendering Equation and sampling a limited set of ray paths per pixel to trace around the scene. Particularly for Volumes which need sampling throughout the medium, this can be costly to imitate fully. One notable path tracer, PBRT-v4, tackles volumetric scattering through this same sampling strategy via a GPU kernel. The goal of this project is to explore the convergence of neural networks with physically based path tracing by integrating Instant Neural Graphics Primitives (Instant-NGP) architecture into PBRT-v4's path tracing system.
+  Though there are many implementations for Path Tracers, almost all rely on sampling rays and estimation in order to calculate The Rendering Equation and sampling a limited set of ray paths per pixel to trace around the scene. Particularly for volumes which need sampling throughout the medium, this can be costly to imitate fully. One notable path tracer, PBRT-v4, tackles volumetric scattering through this same sampling strategy via a GPU kernel. The goal of this project is to explore the convergence of neural networks with physically based path tracing by integrating Instant Neural Graphics Primitives (Instant-NGP) architecture into PBRT-v4's path tracing system.
 
 
   The primary goals are to:
@@ -140,12 +140,12 @@
 
 #p(3)[
   #set text(size: 9.5pt)
-  Conventional rasterization approaches render scenes by utilizing shader programs running in a pipeline, used in real-time applications (such as game engines and modelling software) which takes scene geometry in world space, projects them into render space and converts them into pixel fragments. Lighting calculations and occlusion testing is performed on these fragments to produce the final pixel colour. This process typically has clever shortcuts or techniques to increase speed but may not produce photorealism.
+  Conventional rasterization approaches render scenes by utilizing shader programs running in a pipeline, used in real-time applications (such as game engines and modelling software) which takes scene geometry in world space, projects them into render space and converts them into pixel fragments to produce final color. This process typically has clever shortcuts or techniques to increase speed but may not produce photorealism.
 ]
 
 #p(3)[
 
-  Other methods such as ray tracing were created which model light closer to real life, by constructing rays that shoot from the camera or lights to calculate scene lighting. Applications that want to simulate more realistic lighting effects at the cost of performance use a Whitted Ray Tracing approach, but this is usually only an enhancement for the rasterization process.
+  Other methods such as ray tracing model light closer to real life, by constructing rays that shoot from the camera or lights to calculate scene lighting. Applications that want to simulate more realistic lighting effects at the cost of performance use a Whitted Ray Tracing approach, but this is usually only an enhancement for the rasterization process.
 
   Path tracing is an evolution in the ray tracing approach. It simulates how light actually propagates, by tracing "paths" from the camera that bounce around the scene, considering both direct illumination from light sources and indrect illumination from surface reflection as well as atteunation or emission effects from participating mediums. It uses mathematical models about how light interacts with surfaces and mediums and is the integral process within path tracing. Ray tracing is the umbrella term, whereas path tracing is a type of ray tracing which physically simulates tracing random light paths for more accurate indirect lighting for photorealism. PBRT-v4 @Pharr:2024:PBRT is one such Path tracer that has risen to prominence.
 ]
@@ -249,7 +249,7 @@ $
 ]
 
 #p(3)[
-  As a beam travels through a participating medium in PBRT, the volume has a chance to add its own inherent emission to the beam and the beam enters into one of 3 "scattering events" depending on the majorant scattering coefficient. It uses the null scattering coefficient $sigma_n$ (defined as $sigma_n (x) - sigma_"maj" - sigma_t (x) >= 0$) as well as a majorant scattering coefficient $sigma_"maj" >= sigma_t$ (where $sigma_t = sigma_a + sigma_s$ is the attenuation/transmittance coefficient and $sigma_a$ is the absorption coefficient and $sigma_s$ is the scatterig coefficient) that's defined as an upper bound on the transmittance coefficient everywhere along the ray. Using this $sigma_"maj"$ it can treat the medium as if it were homogeneous and to determine the probability of each scattering event. These 3 scattering events are:
+  As a beam travels through a participating medium in PBRT, the volume has a chance to add its own inherent emission to the beam and the beam enters into one of 3 "scattering events" depending on the majorant scattering coefficient. It uses the null scattering coefficient $sigma_n$ (defined as $sigma_n (x) - sigma_"maj" - sigma_t (x) >= 0$) as well as a majorant scattering coefficient $sigma_"maj" >= sigma_t$ (where $sigma_t = sigma_a + sigma_s$ is the attenuation/transmittance coefficient and $sigma_a$ is the absorption coefficient and $sigma_s$ is the scatterig coefficient) that's defined as an upper bound on the transmittance coefficient everywhere along the ray. Using this $sigma_"maj"$ it can treat the medium as if it were homogeneous and determines the probability of each scattering event. These 3 scattering events are:
   #list(
     [*Absorption*: the path terminates as if light was absorbed by a particle in the medium and the throughput $beta$ is set to 0 for all sampled wavelengths],
     [*Scattering*: update the throughput tracking variables $beta$ and if throughput is non-zero, enqueue medium scattering work depending on the phase function and also terminates sampling the medium itself. This medium scattering kernel then samples a light source and pushes a shadow ray in order to calculate direct lighting. If it does not sample a light source, it handles indirect lighting by spawning a new ray in a random direction based on phase function with additional russian roulette guards to prevent low contribution paths.],
@@ -601,7 +601,7 @@ $
 
 
 #p(4)[
-  Weighted throughput ratio is normalized to $[0, 1]$ as it is the fraction of light that transmits through. However, due to the conversion to RGB and the calculations needed to isolated volume transmittance within one ray sampling step in `media.cpp`,
+  Weighted throughput ratio is normalized to $[0, 1]$ as it is the fraction of light that transmits through. However, due to the conversion to RGB and the calculations needed to isolate volume transmittance within one ray sampling step in `media.cpp`,
   // ```cpp
   // Float pr = T_maj[0] * mp.sigma_s[0];
   // beta *= T_maj * mp.sigma_s / pr;
@@ -633,7 +633,7 @@ $
 #p(3)[
   A batching method for the custom data pipeline for this model was required to be made. It is impractical to have the model train on the entire train set every iteration and there is evidence in previous studies (@nvidia_instant_ngp and @mildenhall2020nerfrepresentingscenesneural) that training on a randomized large batch is sufficient so the validation testing uses minibatch-SGD to perform both training and validation testing using a batch size of $2^19$ with replacement done via a GPU kernel which randomly indexes the training/validation test set. Each run trains the model for 50,000 iterations and every 5,000 iterations it calculates the validation error with a final validation error calculated on the whole set at the end.
 
-  However, one important thing to note is that the due to the size of both the train and validation set, they both cannot fit in memory at the same time, therefore the ongoing validation error was calculated on a fixed size of $2^19$ samples. The reason is because it allows seeing the general trend of the validation error over time as opposed to a final validation error that may be going down but not the lowest error among the configurations.
+  However, one important thing to note is that the due to the size of both the train and validation set, they both cannot fit in memory at the same time, therefore the ongoing validation error was calculated on a fixed set of $2^19$ samples. The reason is because it allows seeing the general trend of the validation error over time as opposed to a final validation error that may be going down but not the lowest error among the configurations.
 ]
 
 
@@ -739,8 +739,10 @@ $
   columns: 4,
 )
 
+//!TODO: Add tables to showcase the amount of time taken
+
 #p(3)[
-  To summarize the results,  the validation error on the smaller hashgrid and FF MLP hyperparameters was better than the validation error on larger hashgrid and FF MLP hyperparameters as you can see a lot of the PSNR stayed around 28 dB. Furthermore, the hyperparameters for the SHdegree and `nFreq` didn't have much of a difference but did affect the time taken to train slightly. It also listed a lower learning rate of about $1^(-3)$ to be stabler than higher ones but large enough to learn/converge quickly. The final "chosen" configuration based off of the validation testing is detailed in `validation_based_config.json`. However, as will be seen in the next section, these results will appear misleading. Notes and a more detailed discussion about this is given in various `typst` files, but  prominently in `validation_error_explanation.pdf`
+  Tables to showcase the time for each is given in the appendix (From Table 3-9). To summarize the results,  the validation error on the smaller hashgrid and FF MLP hyperparameters was better than the validation error on larger hashgrid and FF MLP hyperparameters as you can see a lot of the PSNR stayed around 28 dB. Furthermore, the hyperparameters for the SHdegree and `nFreq` didn't have much of a difference but did affect the time taken to train slightly. It also listed a lower learning rate of about $1^(-3)$ to be stabler than higher ones but large enough to learn/converge quickly. The final "chosen" configuration based off of the validation testing is detailed in `validation_config.json`. However, as will be seen in the next section, these results will appear misleading. Notes and a more detailed discussion about this is given in various `pdf` files, but  prominently in `validation_error_explanation.pdf`
 
 
 ]
@@ -762,6 +764,8 @@ $
     "../imgs/test_psnr.png",
     "../images/medium_large_testerror.png",
     "../images/spectral_testerror.png",
+    // kind: figure,
+    // supplement: [Figure],
     columns: 3,
     height: 12%,
   )
@@ -785,7 +789,7 @@ $
 ]
 
 #p(3)[
-  However, you can see that the general shape for both radiance and the throughput is similar to the actual shape of the explosion, with an expanding and contracting circular shape which would represent the fire/smoke and these slices are also consistent with each other in consecutive slices which means that the network itself is actually learning the medium's transmittance as well as the radiance.
+  However, you can see that the general shape for both radiance and the throughput (shown in the appendix) is similar to the actual shape of the explosion, with an expanding and contracting circular shape which would represent the fire/smoke and these slices are also consistent with each other in consecutive slices which means that the network itself is actually learning the medium's transmittance as well as the radiance.
 
   Furthermore, you can also see that in places which did not have much training data that there is some random noise. This makes sense for areas devoid of training data to push gradients towards learning that space. This is not inherently a bad thing as this could mean the spectral path tracer does not trace those areas and so does not need representing.
 
@@ -855,7 +859,7 @@ $
 #p(3)[
   #timings-graph
 
-  The computation time is calculated on Max inference batch size of 780000 with padded max batch of 780032 and averaged over 3 runs for all 3 novel views shown in @Visual_Quality_Section.  The computation time is on average $3times$ faster for the NGP route as opposed to the native rendering approach. The above table showcases this. For the native PBRT path, it took approximately 3 seconds over 3 different runs as opposed to the NGP route which took only about 1 second over 3 different renders. This is staggeringly faster and showcases, even via a relatively simple and naive integration, it has massive time saves.
+  The computation time is calculated on Max inference batch size of 780000 with padded max batch of 780032 and averaged over 3 runs for all 3 novel views shown in @Visual_Quality_Section.  The computation time is on average $3times$ faster for the NGP route as opposed to the native rendering approach. The above table showcases this. For the native PBRT path, it took approximately 3 seconds over 3 different runs as opposed to the NGP route which took only about 1 second over 3 different renders. This is staggeringly faster and showcases, even via a relatively simple and naive integration, it has massive time saves though part of this time save is likely the simpler integration and it not requiring pushing indirect rays in the event of a scatter.
 ]
 
 #heading(depth: 3)[
@@ -874,13 +878,13 @@ $
 
 #heading(depth: 2)[
   #set text(size: 12pt)
-  Ablation study: Spectral-based Networks
+  Spectral-based Networks
 ]<Ablation_Study>
 
 #p(3)[
   When considering the performance of the RGB-based networks, this begs the question: Is there a fundamental issue with learning just RGB radiance values? An argument can be made that converting from the higher dimensionality of 4 spectrum values that PBRT samples to just 3 RGB values inherently loses some information. This is due to the conversion both accounting for sensor and RGB colorspace conversion, inherently making the network tied to whichever colorspace and sensor it was trained on, but also due to the fact that many wavelengths for green overlap with red and blue as it attempts to simulate how the cones in human eyes work, potentially giving a heavier bias towards green without taking into account particular sensor sensitivity.
 
-  Thus, an experiment can be conducted to see the results of training only throughput using the 4 spectral throughput values instead of 3 RGB values. However, due to the nature of the network not guaranteeing the same 4 wavelengths sampled during volume scattering/medium interactions, this requires a modification. To conduct this ablation study, PBRT was changed to predictably sample the same 4 wavelengths in order to be deterministic about the wavelengths. Future work could be done to have the specific wavelengths logged and used as input to the network as well, but for now we will consider only the given 4 wavelengths. Unfortunately, without the foresight to also record the position of the camera in the random orientations for the original training dataset, this network was trained on the original position and 4 other random orientations different from the training set. So potentially not a 1-1 comparison but still gives a good way to evalute spectral network performance.
+  Thus, an experiment can be conducted to see the results of training only throughput using the 4 spectral throughput values instead of 3 RGB values. Future work could be done to have the specific wavelengths logged and used as input to the network as well, but for now we will consider just using the regular spectral wavelength outputs. Unfortunately, without the foresight to also record the position of the camera in the random orientations for the original training dataset, this network was trained on the original position and 4 other random orientations different from the training set. So potentially not a 1-1 comparison but still gives a good way to evalute spectral network performance.
 
   The configuration used is given in `spectral.json` which is similar to the larger configurations used earlier as those were the ones that gave the best reconstruction but also because this spectral network is not trained on radiance which is what larger models struggled with. The results are given above.
 ]
@@ -910,7 +914,7 @@ $
     [*Memory Usage*: The results show that larger networks including the spectral version, seem to have a high memory usage, but considering the composition of the extra memory used, the majority of this memory usage is in the tcnn activation buffers and not the networks themselves which are very small, only approximately $34"MB"$ max. In fact, the tcnn activation buffers can be significantly reduced by enabling JIT fusion which performs optimizations of fusing the network kernels together. Therefore with this setting enabled, the majority of the cost is in the inference staging buffers used in the integration. Thus, with a better strategy for integration and with some better optimization, it is likely the memory costs can be reduced even further, but this is likely for future work to consider],
   )
 
-  If this project were to be done again, with the insight gathered from these results, it would be more advantageous to give a bigger consideration of exactly how to deal with the `SampleMediumScattering` kernel, whether it should be better integrated into the network's responsibilities or how to deal with the volume being skipped with this current architecture, as it is clear the network learned the radiance and throughput, but the translation in the integration was suboptimal. Other areas which could have more had more work was the training set creation. Similarly to how Monte Carlo estimation tries to match samples with areas of higher importance, the training set could put more precedence on those higher frequency areas, as opposed to the less prominent areas like how the bounding sphere volume gave issues during validation and novel view synthesis. It could have used a much larger training set too, with more uniform orientations of the scene. The lack of more powerful GPUs would have hindered the size of the datasets utilized during the lifetime of the project.
+  If this project were to be done again, with the insight gathered from these results, it would be advantageous to give more consideration to exactly how to deal with the `SampleMediumScattering` kernel, whether it should be better integrated into the network's responsibilities or how to deal with the volume being skipped with this current architecture, as it is clear the network learned the radiance and throughput but the translation in the integration was suboptimal. Other areas which could have more had more work was the training set creation. Similarly to how Monte Carlo estimation tries to match samples with areas of higher importance, the training set could put more precedence on those higher frequency areas, as opposed to the less prominent areas like how the bounding sphere volume gave issues during validation and novel view synthesis. It could have used a much larger training set too, with more uniform orientations of the scene. The lack of more powerful GPUs would have hindered the size of the datasets utilized during the lifetime of the project.
 
 ]
 
@@ -921,7 +925,7 @@ $
 ]
 
 #p(2)[
-  Due to the deficiencies that resulted from performing the RGB conversion from the spectral path tracer, future work should focus on training on spectral data and particuarly looking at utilizing spectral networks for the radiance as it looks like it may be able to perform well to predict radiance as well as the weighted throughput ablation study seems to do well. Furthermore, more work should be done to look at a better strategy for integration, specifically about how to consider compensating for the loss of the medium scattering kernel/call or even about how to potentially incorporate that into the network as well which may require a different approach to take into account the non-deterministic nature of Monte Carlo estimation. This may be in the form of another Fully Fused MLP that runs along side or after the MLP that operates on calculating medium interaction. The medium interaction network can then be modified to output positions and event scattering data that is fed into the scattering network to predict the radiance/throughput for those scattered positions/events. In this way, the medium interaction network is more closely aligned with what the original kernel does which is predict scattering events whereas the scattering network actually calculates the effects of those scattering events. This allows for the learned radiance to accurately and correctly be applied in the tracing that could not have occurred with the proposed network in this project. However this would require signficant modification to Instant-NGP in order to train an architecture like this. Another thing that may be useful to consider is adding additional inputs for the specific wavelengths sampled, to account for the fact that native spectral path tracing operates on sampled wavelengths that may not be consistent between pixel samples.
+  Due to the deficiencies that resulted from performing the RGB conversion from the spectral path tracer, future work should focus on training on spectral data and particuarly looking at utilizing spectral networks for the radiance as it looks like it may be able to perform well to predict radiance as well as the weighted throughput study seems to do well. Furthermore, more work should be done to look at a better strategy for integration, specifically about how to consider compensating for the loss of the medium scattering kernel/call or even about how to potentially incorporate that into the network as well which may require a different approach to take into account the non-deterministic nature of Monte Carlo estimation. This may be in the form of another Fully Fused MLP that runs along side or after the MLP that operates on calculating medium interaction. The medium interaction network can then be modified to output positions and event scattering data that is fed into the scattering network to predict the radiance/throughput for those scattered positions/events. In this way, the medium interaction network is more closely aligned with what the original kernel does which is predict scattering events whereas the scattering network actually calculates the effects of those scattering events. This allows for the learned radiance to accurately and correctly be applied in the tracing that could not have occurred with the proposed network in this project. However this would require signficant modification to Instant-NGP in order to train an architecture like this. Another thing that may be useful to consider is adding additional inputs for the specific wavelengths sampled, to account for the fact that native spectral path tracing operates on sampled wavelengths that may not be consistent between pixel samples.
 ]
 
 #heading(depth: 2)[

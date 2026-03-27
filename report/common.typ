@@ -13,7 +13,7 @@
   gutter: 1em,
   ..paths.pos().map(path => image(path, width: 100%, height: height))
 )
-#let image-figure(..images, columns: 3, caption: none, gap: 0.8em, height: auto) = {
+#let image-figure(..images, columns: 3, caption: none, gap: 0.8em, height: auto, kind: auto, supplement: auto) = {
   // Each positional arg is either a path string or a (path, caption) tuple.
   let items = images
     .pos()
@@ -43,6 +43,8 @@
       })
     ),
     caption: caption,
+    kind: kind,
+    supplement: supplement,
   )
 }
 

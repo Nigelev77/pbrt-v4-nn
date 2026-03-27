@@ -332,6 +332,35 @@
 #green_T_slices
 
 
+#let green_red_T_slices = image-figure(
+  ("../images/transmittance_imgs/green_red_0_T.png", [green_red_0_T]),
+  ("../images/transmittance_imgs/green_red_1_T.png", [green_red_1_T]),
+  ("../images/transmittance_imgs/green_red_2_T.png", [green_red_2_T]),
+  ("../images/transmittance_imgs/green_red_3_T.png", [green_red_3_T]),
+  ("../images/transmittance_imgs/green_red_4_T.png", [green_red_4_T]),
+  ("../images/transmittance_imgs/green_red_5_T.png", [green_red_5_T]),
+  ("../images/transmittance_imgs/green_red_6_T.png", [green_red_6_T]),
+  ("../images/transmittance_imgs/green_red_7_T.png", [green_red_7_T]),
+  ("../images/transmittance_imgs/green_red_8_T.png", [green_red_8_T]),
+  ("../images/transmittance_imgs/green_red_9_T.png", [green_red_9_T]),
+  ("../images/transmittance_imgs/green_red_10_T.png", [green_red_10_T]),
+  ("../images/transmittance_imgs/green_red_11_T.png", [green_red_11_T]),
+  ("../images/transmittance_imgs/green_red_12_T.png", [green_red_12_T]),
+  ("../images/transmittance_imgs/green_red_13_T.png", [green_red_13_T]),
+  ("../images/transmittance_imgs/green_red_14_T.png", [green_red_14_T]),
+  ("../images/transmittance_imgs/green_red_15_T.png", [green_red_15_T]),
+  ("../images/transmittance_imgs/green_red_16_T.png", [green_red_16_T]),
+  ("../images/transmittance_imgs/green_red_17_T.png", [green_red_17_T]),
+  ("../images/transmittance_imgs/green_red_18_T.png", [green_red_18_T]),
+  ("../images/transmittance_imgs/green_red_19_T.png", [green_red_19_T]),
+
+  columns: 5,
+)
+
+
+#green_red_T_slices
+
+
 #let magenta_T_slices = image-figure(
   ("../images/transmittance_imgs/magenta_0_T.png", [magenta_0_T]),
   ("../images/transmittance_imgs/magenta_1_T.png", [magenta_1_T]),
@@ -360,6 +389,34 @@
 #magenta_T_slices
 
 
+
+#let magenta_red_T_slices = image-figure(
+  ("../images/transmittance_imgs/magenta_red_0_T.png", [magenta_red_0_T]),
+  ("../images/transmittance_imgs/magenta_red_1_T.png", [magenta_red_1_T]),
+  ("../images/transmittance_imgs/magenta_red_2_T.png", [magenta_red_2_T]),
+  ("../images/transmittance_imgs/magenta_red_3_T.png", [magenta_red_3_T]),
+  ("../images/transmittance_imgs/magenta_red_4_T.png", [magenta_red_4_T]),
+  ("../images/transmittance_imgs/magenta_red_5_T.png", [magenta_red_5_T]),
+  ("../images/transmittance_imgs/magenta_red_6_T.png", [magenta_red_6_T]),
+  ("../images/transmittance_imgs/magenta_red_7_T.png", [magenta_red_7_T]),
+  ("../images/transmittance_imgs/magenta_red_8_T.png", [magenta_red_8_T]),
+  ("../images/transmittance_imgs/magenta_red_9_T.png", [magenta_red_9_T]),
+  ("../images/transmittance_imgs/magenta_red_10_T.png", [magenta_red_10_T]),
+  ("../images/transmittance_imgs/magenta_red_11_T.png", [magenta_red_11_T]),
+  ("../images/transmittance_imgs/magenta_red_12_T.png", [magenta_red_12_T]),
+  ("../images/transmittance_imgs/magenta_red_13_T.png", [magenta_red_13_T]),
+  ("../images/transmittance_imgs/magenta_red_14_T.png", [magenta_red_14_T]),
+  ("../images/transmittance_imgs/magenta_red_15_T.png", [magenta_red_15_T]),
+  ("../images/transmittance_imgs/magenta_red_16_T.png", [magenta_red_16_T]),
+  ("../images/transmittance_imgs/magenta_red_17_T.png", [magenta_red_17_T]),
+  ("../images/transmittance_imgs/magenta_red_18_T.png", [magenta_red_18_T]),
+  ("../images/transmittance_imgs/magenta_red_19_T.png", [magenta_red_19_T]),
+
+  columns: 5,
+)
+
+#magenta_red_T_slices
+
 #let medium_T_slices = image-figure(
   ("../images/transmittance_imgs/medium_0_T.png", [medium_0_T]),
   ("../images/transmittance_imgs/medium_1_T.png", [medium_1_T]),
@@ -387,6 +444,33 @@
 
 #medium_T_slices
 
+
+#let medium_red_T_slices = image-figure(
+  ("../images/transmittance_imgs/medium_red_0_T.png", [medium_red_0_T]),
+  ("../images/transmittance_imgs/medium_red_1_T.png", [medium_red_1_T]),
+  ("../images/transmittance_imgs/medium_red_2_T.png", [medium_red_2_T]),
+  ("../images/transmittance_imgs/medium_red_3_T.png", [medium_red_3_T]),
+  ("../images/transmittance_imgs/medium_red_4_T.png", [medium_red_4_T]),
+  ("../images/transmittance_imgs/medium_red_5_T.png", [medium_red_5_T]),
+  ("../images/transmittance_imgs/medium_red_6_T.png", [medium_red_6_T]),
+  ("../images/transmittance_imgs/medium_red_7_T.png", [medium_red_7_T]),
+  ("../images/transmittance_imgs/medium_red_8_T.png", [medium_red_8_T]),
+  ("../images/transmittance_imgs/medium_red_9_T.png", [medium_red_9_T]),
+  ("../images/transmittance_imgs/medium_red_10_T.png", [medium_red_10_T]),
+  ("../images/transmittance_imgs/medium_red_11_T.png", [medium_red_11_T]),
+  ("../images/transmittance_imgs/medium_red_12_T.png", [medium_red_12_T]),
+  ("../images/transmittance_imgs/medium_red_13_T.png", [medium_red_13_T]),
+  ("../images/transmittance_imgs/medium_red_14_T.png", [medium_red_14_T]),
+  ("../images/transmittance_imgs/medium_red_15_T.png", [medium_red_15_T]),
+  ("../images/transmittance_imgs/medium_red_16_T.png", [medium_red_16_T]),
+  ("../images/transmittance_imgs/medium_red_17_T.png", [medium_red_17_T]),
+  ("../images/transmittance_imgs/medium_red_18_T.png", [medium_red_18_T]),
+  ("../images/transmittance_imgs/medium_red_19_T.png", [medium_red_19_T]),
+
+  columns: 5,
+)
+
+#medium_red_T_slices
 
 #let spectral_T_slices = image-figure(
   ("../images/spectral_T_imgs/spectral_0_T.png", [spectral_0_T]),
@@ -469,3 +553,162 @@
 )
 
 #large_red_T_slices
+
+
+
+
+#let neurons_layers_table = image-figure(
+  "../images/tables/neurons_layers.png",
+  caption: [Neurons and Layers validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#neurons_layers_table<neuron_layers_table>
+
+#let neurons_layers_graph = image-figure(
+  "../imgs/ffmlp_validation.png",
+  caption: [Graph of PSNR for Neurons and Layers validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#neurons_layers_graph<neurons_layers_graph>
+
+
+#let n_levels_table = image-figure(
+  "../images/tables/n_levels.png",
+  caption: [`n_levels` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#n_levels_table<n_levels_table>
+
+
+
+#let n_levels_graph = image-figure(
+  "../imgs/nlevels_validation.png",
+  caption: [Graph of PSNR for `n_levels` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#n_levels_graph<n_levels_graph>
+
+
+#let log_hashmapsize_table = image-figure(
+  "../images/tables/loghashmapsize.png",
+  caption: [`log_hashmapsize` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#log_hashmapsize_table<log_hashmapsize_table>
+
+
+
+#let loghashmapsize_graph = image-figure(
+  "../imgs/mapsizes_validation.png",
+  caption: [Graph of PSNR for `log_hashmapsize` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#loghashmapsize_graph<log_hashmapsize_graph>
+
+
+#let baseres_table = image-figure(
+  "../images/tables/baseres.png",
+  caption: [`basres` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#baseres_table<baseres_table>
+
+
+
+#let baseres_graph = image-figure(
+  "../imgs/baseres_validation.png",
+  caption: [Graph of PSNR for `baseres` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#baseres_graph<baseres_graph>
+
+
+#let shdegree_table = image-figure(
+  "../images/tables/shdegree.png",
+  caption: [`shdegree` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#shdegree_table<shdegree_table>
+
+
+
+#let shdegree_graph = image-figure(
+  "../imgs/shdegree_validation.png",
+  caption: [Graph of PSNR for `shdegree` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#shdegree_graph<shdegree_graph>
+
+#let nfreq_table = image-figure(
+  "../images/tables/nfreq.png",
+  caption: [`nfreq` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#nfreq_table<nfreq_table>
+
+
+
+#let nfreq_graph = image-figure(
+  "../imgs/nfreq_validation.png",
+  caption: [Graph of PSNR for `nfreq` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#nfreq_graph<nfreq_graph>
+
+
+#let lr_table = image-figure(
+  "../images/tables/lr.png",
+  caption: [`lr` validation testing results table],
+  kind: table,
+  supplement: [Table],
+  columns: 1,
+)
+
+#lr_table<lr_table>
+
+
+#let lr_graph = image-figure(
+  "../imgs/lr-static_validation.png",
+  caption: [Graph of PSNR for `lr` validation testing],
+  kind: figure,
+  supplement: [Figure],
+  columns: 1,
+)
+
+#lr_graph<lr_graph>
