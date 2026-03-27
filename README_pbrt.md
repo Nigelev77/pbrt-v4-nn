@@ -234,3 +234,5 @@ pbrt-v4-nn is a final year project focusing on using Instant-NGP to replace the 
 The `report` subdirectory contains all the notes, in `.typst` and `.pdf` files, about the overalll journey and some of the main difficulties and issues encountered along the way. Feel free to peruse those files for more detail about certain section of the final 10 page report in `fyp.pdf`.
 
 To see the images, the link on OneDrive (viewable only on UoB accounts) is [here](https://bham-my.sharepoint.com/personal/exv144_student_bham_ac_uk/_layouts/15/guestaccess.aspx?share=IgA6OAr5u5J4T70GP-I83DZ-AfTKOWXg5ghSmp1UeD52khI&e=L4Xczy)
+
+The original, high-quality version of the `appendix.pdf` is also in the above onedrive link
